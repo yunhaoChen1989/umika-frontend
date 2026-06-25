@@ -1,8 +1,9 @@
 import Link from "next/link";
 
+import { FooterLocation } from "@/components/layout/footer-location";
 import { getDictionary, type Locale } from "@/lib/i18n";
 
-export function SiteFooter({ locale }: { locale: Locale }) {
+export function SiteFooter({ locale, showLocationInfo = false }: { locale: Locale; showLocationInfo?: boolean }) {
   const dict = getDictionary(locale);
 
   return (
@@ -16,8 +17,14 @@ export function SiteFooter({ locale }: { locale: Locale }) {
         </div>
         <div className="text-sm">
           <p className="font-semibold">{dict.common.visit}</p>
-          <p className="mt-3 text-background/72">Toronto, Ontario</p>
-          <p className="text-background/72">umikasushi.ca</p>
+          {showLocationInfo ? (
+            <FooterLocation />
+          ) : (
+            <>
+              <p className="mt-3 text-background/72">Toronto, Ontario</p>
+              <p className="text-background/72">umikasushi.ca</p>
+            </>
+          )}
         </div>
         <div className="text-sm">
           <p className="font-semibold">{dict.common.quickLinks}</p>
