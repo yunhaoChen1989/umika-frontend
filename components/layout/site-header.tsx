@@ -19,6 +19,8 @@ type CurrentAccountProfile = {
   roles?: string[] | null;
 };
 
+const adminRoles = new Set(["ADMIN", "MANAGER", "ROLE_ADMIN", "ROLE_MANAGER"]);
+
 export function SiteHeader({ locale }: { locale: Locale }) {
   const dict = getDictionary(locale);
   const [canViewAdmin, setCanViewAdmin] = useState(false);
@@ -50,8 +52,10 @@ export function SiteHeader({ locale }: { locale: Locale }) {
       }
 
       const profile = (await response.json().catch(() => null)) as CurrentAccountProfile | null;
-      const roles = [...(profile?.roles ?? []), profile?.role].filter((role): role is string => Boolean(role));
-      setCanViewAdmin(roles.some((role) => role === "ROLE_ADMIN" || role === "ROLE_MANAGER"));
+      const roles = [...(profile?.roles ?? []), profile?.role]
+        .filter((role): role is string => Boolean(role))
+        .map((role) => role.toUpperCase());
+      setCanViewAdmin(roles.some((role) => adminRoles.has(role)));
     }
 
     void loadAccess();

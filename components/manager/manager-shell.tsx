@@ -74,6 +74,15 @@ export function ManagerShell({
               );
             })}
           </div>
+          {menus.length === 0 ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+              <p className="font-semibold">No manager menus available.</p>
+              <p className="mt-1 text-xs leading-5 text-amber-800">Log in with a manager account or add role menu rows in the backend.</p>
+              <Button asChild variant="outline" size="sm" className="mt-3 border-amber-300 bg-white">
+                <Link href="/login">Login</Link>
+              </Button>
+            </div>
+          ) : null}
         </nav>
       </aside>
       <div className="lg:pl-72">
@@ -107,6 +116,11 @@ export function ManagerShell({
             </div>
           </div>
           <nav className="flex gap-2 overflow-x-auto border-t border-slate-200 px-4 py-2 sm:px-6 lg:hidden" aria-label="Manager sections">
+            {mobileMenus.length === 0 ? (
+              <Button asChild variant="outline" size="sm" className="shrink-0">
+                <Link href="/login">Login</Link>
+              </Button>
+            ) : null}
             {mobileMenus.map((item) => {
               const active = item.path === "/manager" ? pathname === item.path : pathname === item.path || pathname.startsWith(`${item.path}/`);
               return (

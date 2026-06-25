@@ -6,13 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getDictionary } from "@/lib/i18n";
 import { getCurrentLocale } from "@/lib/i18n-server";
+import { getManagerMenus } from "@/lib/manager-api";
 import { getLocalizedManagerMenus } from "@/lib/localized-data";
 import type { ManagerMenu } from "@/lib/manager-types";
 
 export default async function SystemMenusPage() {
   const locale = await getCurrentLocale();
   const dict = getDictionary(locale);
-  const menus = getLocalizedManagerMenus(locale);
+  const backendMenus = await getManagerMenus();
+  const menus = getLocalizedManagerMenus(locale, backendMenus);
 
   return (
     <div className="space-y-6">

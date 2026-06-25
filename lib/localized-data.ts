@@ -103,9 +103,9 @@ const managerMenuNames = {
   },
 } as const;
 
-export function getLocalizedManagerMenus(locale: Locale) {
+export function getLocalizedManagerMenus(locale: Locale, menus: typeof managerMenus = managerMenus) {
   const names = managerMenuNames[locale] as Record<string, string>;
-  return managerMenus.map((menu) => ({
+  return menus.map((menu) => ({
     ...menu,
     name: names[menu.code] ?? menu.name,
     children: menu.children?.map((child) => ({
