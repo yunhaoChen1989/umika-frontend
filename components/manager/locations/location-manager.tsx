@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { AlertCircle, CheckCircle2, Pencil, Plus, RefreshCw, Store, Trash2, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Copy, ExternalLink, Pencil, Plus, RefreshCw, Store, Trash2, X } from "lucide-react";
 
 import { StatusPill } from "@/components/manager/status-pill";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ export function LocationManager() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isFormVisible, setIsFormVisible] = useState(false);
+  const [publicOrigin, setPublicOrigin] = useState("");
 
   const isEditing = Boolean(form.id);
 
@@ -83,6 +84,10 @@ export function LocationManager() {
   useEffect(() => {
     void loadLocations();
   }, [loadLocations]);
+
+  useEffect(() => {
+    setPublicOrigin(window.location.origin);
+  }, []);
 
   function updateField<K extends keyof LocationFormState>(key: K, value: LocationFormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -260,6 +265,18 @@ export function LocationManager() {
     await loadLocations();
   }
 
+  async function copyLocationUrl(location: LocationDto) {
+    const url = getLocationUrl(location, publicOrigin);
+
+    if (!url) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(url).catch(() => null);
+    setMessage("Location URL copied.");
+    setError(null);
+  }
+
   if (status === "unauthenticated") {
     return (
       <Card className="rounded-md shadow-none">
@@ -428,55 +445,90 @@ export function LocationManager() {
             <div className="p-5 text-sm text-slate-500">No locations yet. Add the first store with the form.</div>
           ) : (
             <div className="overflow-x-auto">
-              <div className="grid min-w-[920px] grid-cols-[1.4fr_1.5fr_150px_150px_180px] border-b border-slate-200 bg-slate-100 px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">
+              <div className="grid min-w-[1120px] grid-cols-[1.2fr_1.4fr_1.7fr_150px_150px_220px] border-b border-slate-200 bg-slate-100 px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">
                 <span>Store</span>
                 <span>Address</span>
+                <span>Public URL</span>
                 <span>Contact</span>
                 <span>Status</span>
                 <span>Actions</span>
               </div>
-              {locations.map((location) => (
-                <div
-                  className="grid min-w-[920px] grid-cols-[1.4fr_1.5fr_150px_150px_180px] items-center border-b border-slate-200 px-5 py-4 last:border-b-0"
-                  key={location.id ?? location.name}
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-slate-950">{location.name}</p>
-                    <p className="mt-1 truncate text-xs text-slate-500">{location.id}</p>
+              {locations.map((location) => {
+                const locationUrl = getLocationUrl(location, publicOrigin);
+
+                return (
+                  <div
+                    className="grid min-w-[1120px] grid-cols-[1.2fr_1.4fr_1.7fr_150px_150px_220px] items-center border-b border-slate-200 px-5 py-4 last:border-b-0"
+                    key={location.id ?? location.name}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-slate-950">{location.name}</p>
+                      <p className="mt-1 truncate font-mono text-xs text-slate-500">{location.id}</p>
+                    </div>
+                    <div className="min-w-0 text-sm text-slate-600">
+                      <p className="truncate">{location.addressLine1}</p>
+                      <p className="truncate">
+                        {[location.city, location.province, location.postalCode].filter(Boolean).join(", ")}
+                      </p>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate font-mono text-xs font-semibold text-slate-700">{location.locationCode ?? "No code yet"}</p>
+                      {locationUrl ? (
+                        <a
+                          className="mt-1 block truncate font-mono text-xs text-primary hover:underline"
+                          href={locationUrl}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          {locationUrl}
+                        </a>
+                      ) : (
+                        <p className="mt-1 text-xs text-slate-500">Save or refresh after backend generates a code.</p>
+                      )}
+                    </div>
+                    <div className="min-w-0 text-sm text-slate-600">
+                      <p className="truncate">{location.phone ?? "No phone"}</p>
+                      <p className="truncate">{location.email ?? "No email"}</p>
+                    </div>
+                    <StatusPill tone={location.isActive === false ? "DISABLED" : "ACTIVE"}>
+                      {location.isActive === false ? "INACTIVE" : "ACTIVE"}
+                    </StatusPill>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        disabled={!locationUrl}
+                        onClick={() => void copyLocationUrl(location)}
+                        size="icon"
+                        type="button"
+                        variant="outline"
+                        aria-label={`Copy public URL for ${location.name}`}
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                      <Button asChild disabled={!locationUrl} size="icon" type="button" variant="outline" aria-label={`Open public URL for ${location.name}`}>
+                        <a href={locationUrl || "#"} rel="noreferrer" target="_blank">
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      </Button>
+                      <Button onClick={() => selectLocation(location)} size="icon" type="button" variant="outline" aria-label={`Edit ${location.name}`}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button onClick={() => void toggleActive(location)} size="icon" type="button" variant="outline" aria-label={`Toggle ${location.name}`}>
+                        <Store className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        disabled={deletingId === location.id}
+                        onClick={() => void deleteLocation(location)}
+                        size="icon"
+                        type="button"
+                        variant="outline"
+                        aria-label={`Delete ${location.name}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="min-w-0 text-sm text-slate-600">
-                    <p className="truncate">{location.addressLine1}</p>
-                    <p className="truncate">
-                      {[location.city, location.province, location.postalCode].filter(Boolean).join(", ")}
-                    </p>
-                  </div>
-                  <div className="min-w-0 text-sm text-slate-600">
-                    <p className="truncate">{location.phone ?? "No phone"}</p>
-                    <p className="truncate">{location.email ?? "No email"}</p>
-                  </div>
-                  <StatusPill tone={location.isActive === false ? "DISABLED" : "ACTIVE"}>
-                    {location.isActive === false ? "INACTIVE" : "ACTIVE"}
-                  </StatusPill>
-                  <div className="flex items-center gap-2">
-                    <Button onClick={() => selectLocation(location)} size="icon" type="button" variant="outline" aria-label={`Edit ${location.name}`}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button onClick={() => void toggleActive(location)} size="icon" type="button" variant="outline" aria-label={`Toggle ${location.name}`}>
-                      <Store className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      disabled={deletingId === location.id}
-                      onClick={() => void deleteLocation(location)}
-                      size="icon"
-                      type="button"
-                      variant="outline"
-                      aria-label={`Delete ${location.name}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>
@@ -484,6 +536,16 @@ export function LocationManager() {
       </div>
     </div>
   );
+}
+
+function getLocationUrl(location: LocationDto, origin: string) {
+  if (!origin || !location.locationCode) {
+    return null;
+  }
+
+  const url = new URL("/", origin);
+  url.searchParams.set("locationCode", location.locationCode);
+  return url.toString();
 }
 
 function Field({

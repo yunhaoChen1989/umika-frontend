@@ -70,6 +70,7 @@ export function SiteHeader({ locale }: { locale: Locale }) {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const locationId = params.get("locationId") ?? params.get("location") ?? params.get("storeId") ?? params.get("store");
+    const locationCode = params.get("locationCode") ?? params.get("storeCode");
     let active = true;
 
     async function loadLocation() {
@@ -83,6 +84,10 @@ export function SiteHeader({ locale }: { locale: Locale }) {
 
       if (locationId) {
         url.searchParams.set("locationId", locationId);
+      }
+
+      if (locationCode) {
+        url.searchParams.set("locationCode", locationCode);
       }
 
       const response = await fetch(url.toString(), {

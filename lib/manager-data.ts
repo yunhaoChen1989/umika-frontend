@@ -84,7 +84,15 @@ export const managerMenus: ManagerMenu[] = [
     sortOrder: 100,
     permission: "SETTING_VIEW",
     children: [
-      { id: "system-menus", name: "System Menus", code: "MANAGER_SYSTEM_MENUS", path: "/manager/system-menus", icon: "MenuSquare", sortOrder: 30, permission: "SETTING_VIEW" },
+      {
+        id: "system-menus",
+        name: "System Menus",
+        code: "MANAGER_SYSTEM_MENUS",
+        path: "/manager/settings/system-menus",
+        icon: "MenuSquare",
+        sortOrder: 30,
+        permission: "SETTING_VIEW",
+      },
       { id: "role-permissions", name: "Role Permissions", code: "MANAGER_ROLE_PERMISSIONS", path: "/manager/settings/role-permissions", icon: "ShieldCheck", sortOrder: 50, permission: "SETTING_EDIT" },
       { id: "user-permissions", name: "User Permissions", code: "MANAGER_USER_PERMISSIONS", path: "/manager/settings/user-permissions", icon: "ShieldUser", sortOrder: 60, permission: "USER_ROLE_ASSIGN" },
     ],
