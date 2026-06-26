@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Bell, ChevronRight, LogOut, Search, ShieldCheck } from "lucide-react";
 
+import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { ManagerIcon } from "@/components/manager/manager-icon";
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
 import { Badge } from "@/components/ui/badge";
@@ -74,7 +75,7 @@ export function ManagerShell({
               <p className="font-semibold">No manager menus available.</p>
               <p className="mt-1 text-xs leading-5 text-amber-800">Log in with a manager account or add role menu rows in the backend.</p>
               <Button asChild variant="outline" size="sm" className="mt-3 border-amber-300 bg-white">
-                <Link href="/login">Login</Link>
+                <LoginRedirectLink>Login</LoginRedirectLink>
               </Button>
             </div>
           ) : null}
@@ -113,7 +114,7 @@ export function ManagerShell({
           <nav className="flex gap-2 overflow-x-auto border-t border-slate-200 px-4 py-2 sm:px-6 lg:hidden" aria-label="Manager sections">
             {menus.length === 0 ? (
               <Button asChild variant="outline" size="sm" className="shrink-0">
-                <Link href="/login">Login</Link>
+                <LoginRedirectLink>Login</LoginRedirectLink>
               </Button>
             ) : null}
             {menus.map((item) => (

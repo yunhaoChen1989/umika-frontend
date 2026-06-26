@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { AlertCircle, CheckCircle2, Copy, ExternalLink, Pencil, Plus, RefreshCw, Store, Trash2, X } from "lucide-react";
 
+import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { StatusPill } from "@/components/manager/status-pill";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -283,7 +284,7 @@ export function LocationManager() {
         <CardContent className="flex flex-col gap-4 pt-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-slate-600">{error ?? "Log in with a manager account to manage locations."}</p>
           <Button asChild className="w-full sm:w-auto">
-            <a href="/login">Login</a>
+            <LoginRedirectLink>Login</LoginRedirectLink>
           </Button>
         </CardContent>
       </Card>

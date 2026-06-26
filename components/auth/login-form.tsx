@@ -25,7 +25,7 @@ type AuthSuccessResponse = {
   tokenType?: string;
 };
 
-export function LoginForm({ copy }: { copy: LoginCopy }) {
+export function LoginForm({ copy, redirectPath }: { copy: LoginCopy; redirectPath: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -62,7 +62,7 @@ export function LoginForm({ copy }: { copy: LoginCopy }) {
       localStorage.setItem("umika_token_type", body.tokenType ?? "Bearer");
     }
 
-    router.push("/account");
+    router.push(redirectPath);
     router.refresh();
   }
 
@@ -107,7 +107,7 @@ export function LoginForm({ copy }: { copy: LoginCopy }) {
       </Button>
       <p className="mt-4 text-center text-sm text-muted-foreground">
         {copy.newHere}{" "}
-        <Link className="font-semibold text-primary" href="/register">
+        <Link className="font-semibold text-primary" href={`/register?redirect=${encodeURIComponent(redirectPath)}`}>
           {copy.createAccount}
         </Link>
       </p>

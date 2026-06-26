@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { FooterLocation } from "@/components/layout/footer-location";
 import { getDictionary, type Locale } from "@/lib/i18n";
 
@@ -31,7 +32,7 @@ export function SiteFooter({ locale, showLocationInfo = false }: { locale: Local
           <div className="mt-3 flex flex-col gap-2 text-background/72">
             <Link href="/menu">{dict.common.menu}</Link>
             <Link href="/rewards">{dict.common.rewards}</Link>
-            <Link href="/login">{dict.common.login}</Link>
+            <LoginRedirectLink>{dict.common.login}</LoginRedirectLink>
           </div>
         </div>
       </div>

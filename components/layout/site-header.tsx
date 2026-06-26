@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { MapPin, ShoppingBag, UserRound } from "lucide-react";
 
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
@@ -24,6 +25,7 @@ const adminRoles = new Set(["ADMIN", "MANAGER", "ROLE_ADMIN", "ROLE_MANAGER"]);
 
 export function SiteHeader({ locale }: { locale: Locale }) {
   const dict = getDictionary(locale);
+  const searchParams = useSearchParams();
   const [canViewAdmin, setCanViewAdmin] = useState(false);
   const [location, setLocation] = useState<LocationDto | null>(null);
 
@@ -68,9 +70,8 @@ export function SiteHeader({ locale }: { locale: Locale }) {
   }, []);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const locationId = params.get("locationId") ?? params.get("location") ?? params.get("storeId") ?? params.get("store");
-    const locationCode = params.get("locationCode") ?? params.get("storeCode");
+    const locationId = searchParams.get("locationId") ?? searchParams.get("location") ?? searchParams.get("storeId") ?? searchParams.get("store");
+    const locationCode = searchParams.get("locationCode") ?? searchParams.get("storeCode");
     let active = true;
 
     async function loadLocation() {
@@ -113,7 +114,7 @@ export function SiteHeader({ locale }: { locale: Locale }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [searchParams]);
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/92 backdrop-blur">

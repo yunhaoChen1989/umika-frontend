@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import { localeLabels, locales, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -20,6 +20,15 @@ export function LanguageSwitcher({
   label: string;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const locationCode = searchParams.get("locationCode") ?? searchParams.get("storeCode");
+  const nextParams = new URLSearchParams();
+
+  if (locationCode) {
+    nextParams.set("locationCode", locationCode);
+  }
+
+  const nextPath = `${pathname}${nextParams.size > 0 ? `?${nextParams.toString()}` : ""}`;
 
   return (
     <div className="inline-flex items-center rounded-md border border-border bg-background p-0.5" aria-label={label}>
@@ -28,7 +37,7 @@ export function LanguageSwitcher({
         {locales.map((item) => (
           <Link
             key={item}
-            href={`/api/locale?locale=${item}&next=${encodeURIComponent(pathname)}`}
+            href={`/api/locale?locale=${item}&next=${encodeURIComponent(nextPath)}`}
             className={cn(
               "rounded px-1.5 py-1 text-xs font-semibold transition-colors sm:px-2",
               locale === item ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",

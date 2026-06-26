@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { AlertCircle, LockKeyhole, Mail, Phone, User, UserPlus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { getLoginRedirectHref } from "@/lib/auth-redirect";
 import type { Locale } from "@/lib/i18n";
 
 type RegisterCopy = {
@@ -36,7 +37,7 @@ type AuthSuccessResponse = {
   tokenType?: string;
 };
 
-export function RegisterForm({ copy, locale }: { copy: RegisterCopy; locale: Locale }) {
+export function RegisterForm({ copy, locale, redirectPath }: { copy: RegisterCopy; locale: Locale; redirectPath: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -92,7 +93,7 @@ export function RegisterForm({ copy, locale }: { copy: RegisterCopy; locale: Loc
       localStorage.setItem("umika_token_type", body.tokenType ?? "Bearer");
     }
 
-    router.push("/account");
+    router.push(redirectPath);
     router.refresh();
   }
 
@@ -215,7 +216,7 @@ export function RegisterForm({ copy, locale }: { copy: RegisterCopy; locale: Loc
       </Button>
       <p className="mt-4 text-center text-sm text-muted-foreground">
         {copy.alreadyHaveAccount}{" "}
-        <Link className="font-semibold text-primary" href="/login">
+        <Link className="font-semibold text-primary" href={getLoginRedirectHref(redirectPath)}>
           {copy.login}
         </Link>
       </p>

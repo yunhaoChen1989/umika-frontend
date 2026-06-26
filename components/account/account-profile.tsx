@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { CalendarDays, Check, Copy, Gift, Globe2, Link2, Mail, Phone, Ticket, UserRound } from "lucide-react";
 
+import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -126,7 +126,7 @@ export function AccountProfilePanel({ copy }: { copy: AccountCopy }) {
         <CardContent className="flex flex-col gap-4 pt-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">{error ?? copy.loginRequired}</p>
           <Button asChild className="w-full sm:w-auto">
-            <Link href="/login">{copy.login}</Link>
+            <LoginRedirectLink>{copy.login}</LoginRedirectLink>
           </Button>
         </CardContent>
       </Card>
