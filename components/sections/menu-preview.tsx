@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
 import { Plus } from "lucide-react";
 
@@ -31,6 +32,14 @@ export function MenuPreview({ locale }: { locale: Locale }) {
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {menuItems.slice(0, 3).map((item) => (
             <Card key={item.id} className="flex flex-col">
+              <div className="aspect-[4/3] overflow-hidden rounded-t-md bg-muted">
+                <img
+                  alt={item.name}
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                  src={item.imageUrl ?? "/images/umika-hero.png"}
+                />
+              </div>
               <CardHeader>
                 <div className="flex items-start justify-between gap-3">
                   <CardTitle>{item.name}</CardTitle>

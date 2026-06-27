@@ -6,6 +6,7 @@ export type MenuItem = {
   category: MenuCategory;
   description: string;
   price: number;
+  imageUrl?: string | null;
   popular?: boolean;
   tags: string[];
 };

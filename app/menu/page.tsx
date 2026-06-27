@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 import { Plus } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +31,9 @@ export default async function MenuPage() {
       <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {menuItems.map((item) => (
           <Card key={item.id} className="flex flex-col">
+            <div className="aspect-[4/3] overflow-hidden rounded-t-md bg-muted">
+              <img alt={item.name} className="h-full w-full object-cover" loading="lazy" src={item.imageUrl ?? "/images/umika-hero.png"} />
+            </div>
             <CardHeader>
               <div className="flex items-start justify-between gap-4">
                 <div>

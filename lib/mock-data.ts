@@ -7,6 +7,7 @@ export const menuItems: MenuItem[] = [
     category: "Combos",
     description: "Chef selection of nigiri, sashimi, maki, and seasonal garnish.",
     price: 38,
+    imageUrl: "/images/umika-hero.png",
     popular: true,
     tags: ["Chef pick", "Dinner"],
   },
@@ -16,6 +17,7 @@ export const menuItems: MenuItem[] = [
     category: "Nigiri",
     description: "Two pieces with seasoned rice, wasabi, and house soy.",
     price: 7,
+    imageUrl: "/images/umika-hero.png",
     popular: true,
     tags: ["Fresh", "Classic"],
   },
@@ -25,6 +27,7 @@ export const menuItems: MenuItem[] = [
     category: "Rolls",
     description: "Tuna, cucumber, scallion, sesame, and chili mayo.",
     price: 12,
+    imageUrl: "/images/umika-hero.png",
     popular: true,
     tags: ["Spicy"],
   },
@@ -34,6 +37,7 @@ export const menuItems: MenuItem[] = [
     category: "Rolls",
     description: "Tempura shrimp, avocado, unagi sauce, and tobiko.",
     price: 16,
+    imageUrl: "/images/umika-hero.png",
     tags: ["Signature"],
   },
   {
@@ -42,6 +46,7 @@ export const menuItems: MenuItem[] = [
     category: "Sashimi",
     description: "Nine slices of salmon, tuna, and hamachi.",
     price: 24,
+    imageUrl: "/images/umika-hero.png",
     tags: ["Protein"],
   },
   {
@@ -50,6 +55,7 @@ export const menuItems: MenuItem[] = [
     category: "Drinks",
     description: "Sparkling yuzu, chilled matcha, and citrus peel.",
     price: 6,
+    imageUrl: "/images/umika-hero.png",
     tags: ["House drink"],
   },
 ];
