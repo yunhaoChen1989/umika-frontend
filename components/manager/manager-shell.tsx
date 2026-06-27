@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Bell, ChevronRight, LogOut, Search, ShieldCheck } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
@@ -10,6 +10,7 @@ import { ManagerIcon } from "@/components/manager/manager-icon";
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { getLoginRedirectHref } from "@/lib/auth-redirect";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { ManagerMenu } from "@/lib/manager-types";
@@ -24,6 +25,7 @@ export function ManagerShell({
   locale: Locale;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const dict = getDictionary(locale);
   const activeBranchCodes = useMemo(() => getActiveBranchCodes(menus, pathname), [menus, pathname]);
   const [expandedCodes, setExpandedCodes] = useState<Set<string>>(() => new Set(activeBranchCodes));
@@ -44,6 +46,23 @@ export function ManagerShell({
 
       return next;
     });
+  }
+
+  async function signOut() {
+    const redirectPath = `${pathname}${window.location.search}`;
+
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      cache: "no-store",
+    }).catch(() => null);
+
+    localStorage.removeItem("umika_access_token");
+    localStorage.removeItem("umika_token_type");
+    sessionStorage.removeItem("umika_access_token");
+    sessionStorage.removeItem("umika_token_type");
+
+    router.replace(getLoginRedirectHref(redirectPath));
+    router.refresh();
   }
 
   return (
@@ -105,7 +124,7 @@ export function ManagerShell({
               <Button variant="outline" size="icon" aria-label="Notifications">
                 <Bell className="h-4 w-4" />
               </Button>
-              <Button variant="outline" size="sm" className="hidden sm:inline-flex">
+              <Button onClick={() => void signOut()} variant="outline" size="sm" className="hidden sm:inline-flex" type="button">
                 <LogOut className="h-4 w-4" />
                 {dict.manager.signOut}
               </Button>
