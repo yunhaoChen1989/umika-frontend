@@ -108,11 +108,16 @@ export function getLocalizedManagerMenus(locale: Locale, menus: typeof managerMe
   return menus.map((menu) => ({
     ...menu,
     name: names[menu.code] ?? menu.name,
-    children: menu.children?.map((child) => ({
-      ...child,
-      name: names[child.code] ?? child.name,
-    })),
+    children: menu.children?.map((child) => localizeManagerMenu(child, names)),
   }));
+}
+
+function localizeManagerMenu(menu: typeof managerMenus[number], names: Record<string, string>): typeof managerMenus[number] {
+  return {
+    ...menu,
+    name: names[menu.code] ?? menu.name,
+    children: menu.children?.map((child) => localizeManagerMenu(child, names)),
+  };
 }
 
 const dashboardTranslations = {
