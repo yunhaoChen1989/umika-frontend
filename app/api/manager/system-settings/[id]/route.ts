@@ -33,23 +33,27 @@ async function proxyJsonResponse(response: Response) {
   });
 }
 
-export async function GET(request: NextRequest) {
+export async function PUT(
+  request: NextRequest,
+  context: {
+    params: Promise<{ id: string }>;
+  },
+) {
   const token = await getToken(request);
 
   if (!token) {
     return authError();
   }
 
-  const url = new URL(`${backendBaseUrl}/system-settings`);
-  request.nextUrl.searchParams.forEach((value, key) => {
-    url.searchParams.append(key, value);
-  });
-
-  const response = await fetch(url, {
-    method: "GET",
+  const { id } = await context.params;
+  const payload = await request.json().catch(() => null);
+  const response = await fetch(`${backendBaseUrl}/system-settings/${id}`, {
+    method: "PUT",
     headers: {
       Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
     },
+    body: JSON.stringify(payload),
     cache: "no-store",
   }).catch(() => null);
 
@@ -60,21 +64,24 @@ export async function GET(request: NextRequest) {
   return proxyJsonResponse(response);
 }
 
-export async function POST(request: NextRequest) {
+export async function DELETE(
+  request: NextRequest,
+  context: {
+    params: Promise<{ id: string }>;
+  },
+) {
   const token = await getToken(request);
 
   if (!token) {
     return authError();
   }
 
-  const payload = await request.json().catch(() => null);
-  const response = await fetch(`${backendBaseUrl}/system-settings`, {
-    method: "POST",
+  const { id } = await context.params;
+  const response = await fetch(`${backendBaseUrl}/system-settings/${id}`, {
+    method: "DELETE",
     headers: {
       Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
     },
-    body: JSON.stringify(payload),
     cache: "no-store",
   }).catch(() => null);
 

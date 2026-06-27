@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, RefreshCw, Save, Search, ShieldCheck, Trash2, X } from "lucide-react";
+import type { FormEvent } from "react";
+import { AlertCircle, CheckCircle2, Pencil, Plus, RefreshCw, Save, Search, ShieldCheck, Trash2, X } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +33,14 @@ type SystemSettingWireDto = Partial<SystemSettingDto> & {
   description?: string | null;
 };
 
+type GlobalSettingFormState = {
+  id: string;
+  settingGroup: string;
+  settingKey: string;
+  settingValue: string;
+  description: string;
+};
+
 type SettingDefinition = {
   key: string;
   label: string;
@@ -43,6 +52,14 @@ type SettingDefinition = {
 
 const SETTING_GROUP = "GENERAL";
 const STORE_CHANGE_ROLES = new Set(["ROLE_ADMIN", "ADMIN"]);
+
+const emptyGlobalSettingForm: GlobalSettingFormState = {
+  id: "",
+  settingGroup: SETTING_GROUP,
+  settingKey: "",
+  settingValue: "",
+  description: "",
+};
 
 const SETTING_DEFINITIONS: SettingDefinition[] = [
   {
@@ -124,6 +141,8 @@ export function LocationSettingManager() {
   const [locations, setLocations] = useState<LocationDto[]>([]);
   const [systemSettings, setSystemSettings] = useState<SystemSettingDto[]>([]);
   const [locationSettings, setLocationSettings] = useState<LocationSettingDto[]>([]);
+  const [globalForm, setGlobalForm] = useState<GlobalSettingFormState>(emptyGlobalSettingForm);
+  const [isGlobalFormVisible, setIsGlobalFormVisible] = useState(false);
   const [selectedLocationId, setSelectedLocationId] = useState("");
   const [locationQuery, setLocationQuery] = useState("");
   const [locationSelectionSource, setLocationSelectionSource] = useState<"stored" | "manual" | null>(null);
@@ -131,6 +150,8 @@ export function LocationSettingManager() {
   const [status, setStatus] = useState<"loading" | "ready" | "unauthenticated" | "error">("loading");
   const [overrideStatus, setOverrideStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [canChangeStore, setCanChangeStore] = useState(false);
+  const [globalSavingId, setGlobalSavingId] = useState<string | null>(null);
+  const [globalDeletingId, setGlobalDeletingId] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -141,6 +162,7 @@ export function LocationSettingManager() {
   const locationSettingsByKey = useMemo(() => new Map(locationSettings.map((setting) => [setting.settingKey, setting])), [locationSettings]);
   const selectedLocation = selectedLocationId ? locationById.get(selectedLocationId) ?? null : null;
   const locationLocked = Boolean(selectedLocationId) && !canChangeStore;
+  const canEditGlobalSettings = canChangeStore;
 
   const filteredLocations = useMemo(() => {
     const query = locationQuery.trim().toLowerCase();
@@ -221,8 +243,7 @@ export function LocationSettingManager() {
     setSystemSettings(
       (systemSettingsPage.content ?? [])
         .map(normalizeSystemSetting)
-        .filter((item): item is SystemSettingDto => Boolean(item))
-        .filter((setting) => SETTING_DEFINITIONS.some((definition) => definition.key === setting.settingKey)),
+        .filter((item): item is SystemSettingDto => Boolean(item)),
     );
     setStatus("ready");
   }, []);
@@ -326,6 +347,115 @@ export function LocationSettingManager() {
     setDraftValues({});
     setMessage(null);
     setError(null);
+  }
+
+  function startCreateGlobalSetting() {
+    setGlobalForm(emptyGlobalSettingForm);
+    setIsGlobalFormVisible(true);
+    setMessage(null);
+    setError(null);
+  }
+
+  function closeGlobalForm() {
+    setGlobalForm(emptyGlobalSettingForm);
+    setIsGlobalFormVisible(false);
+    setMessage(null);
+    setError(null);
+  }
+
+  function editGlobalSetting(setting: SystemSettingDto) {
+    setGlobalForm({
+      id: setting.id ?? "",
+      settingGroup: setting.settingGroup ?? SETTING_GROUP,
+      settingKey: setting.settingKey ?? "",
+      settingValue: setting.settingValue ?? "",
+      description: setting.description ?? "",
+    });
+    setIsGlobalFormVisible(true);
+    setMessage(null);
+    setError(null);
+  }
+
+  function updateGlobalField<K extends keyof GlobalSettingFormState>(key: K, value: GlobalSettingFormState[K]) {
+    setGlobalForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function saveGlobalSetting(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!canEditGlobalSettings) {
+      setError("Only role_admin users can manage global settings.");
+      return;
+    }
+
+    if (!globalForm.settingKey.trim()) {
+      setError("Setting key is required.");
+      return;
+    }
+
+    setGlobalSavingId(globalForm.id || globalForm.settingKey);
+    setMessage(null);
+    setError(null);
+
+    const payload: SystemSettingDto = {
+      id: globalForm.id || null,
+      settingGroup: globalForm.settingGroup.trim() || SETTING_GROUP,
+      settingKey: globalForm.settingKey.trim(),
+      settingValue: globalForm.settingValue.trim() || null,
+      description: globalForm.description.trim() || null,
+    };
+
+    const response = await fetch(globalForm.id ? `/api/manager/system-settings/${globalForm.id}` : "/api/manager/system-settings", {
+      method: globalForm.id ? "PUT" : "POST",
+      headers: {
+        ...getAuthHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    }).catch(() => null);
+
+    setGlobalSavingId(null);
+
+    if (!response?.ok) {
+      const body = response ? await response.json().catch(() => null) : null;
+      setError(getManagerErrorMessage(response?.status, body, "Unable to save global setting."));
+      return;
+    }
+
+    setMessage(globalForm.id ? "Global setting updated." : "Global setting created.");
+    closeGlobalForm();
+    await loadCatalog();
+  }
+
+  async function deleteGlobalSetting(setting: SystemSettingDto) {
+    if (!canEditGlobalSettings) {
+      setError("Only role_admin users can manage global settings.");
+      return;
+    }
+
+    if (!setting.id || !window.confirm(`Delete global setting ${setting.settingKey}?`)) {
+      return;
+    }
+
+    setGlobalDeletingId(setting.id);
+    setMessage(null);
+    setError(null);
+
+    const response = await fetch(`/api/manager/system-settings/${setting.id}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    }).catch(() => null);
+
+    setGlobalDeletingId(null);
+
+    if (!response?.ok) {
+      const body = response ? await response.json().catch(() => null) : null;
+      setError(getManagerErrorMessage(response?.status, body, "Unable to delete global setting."));
+      return;
+    }
+
+    setMessage("Global setting deleted.");
+    await loadCatalog();
   }
 
   function updateDraft(key: string, value: string) {
@@ -537,37 +667,121 @@ export function LocationSettingManager() {
         <div className="space-y-6">
           <Card className="overflow-hidden rounded-md shadow-none">
             <CardHeader className="border-b border-slate-200">
-              <CardTitle className="text-base">Global settings</CardTitle>
-              <p className="mt-2 text-sm text-slate-500">Values from `system_settings` that location overrides inherit from.</p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-base">Global settings</CardTitle>
+                  <p className="mt-2 text-sm text-slate-500">Values from `system_settings` that location overrides inherit from.</p>
+                </div>
+                {canEditGlobalSettings ? (
+                  <Button onClick={startCreateGlobalSetting} type="button">
+                    <Plus className="h-4 w-4" />
+                    Add setting
+                  </Button>
+                ) : null}
+              </div>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent className="space-y-4 p-0">
+              {isGlobalFormVisible ? (
+                <form className="space-y-4 border-b border-slate-200 p-5" onSubmit={(event) => void saveGlobalSetting(event)}>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <SettingField label="Setting group">
+                      <input
+                        className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                        onChange={(event) => updateGlobalField("settingGroup", event.target.value)}
+                        value={globalForm.settingGroup}
+                      />
+                    </SettingField>
+                    <SettingField label="Setting key" required>
+                      <input
+                        className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                        onChange={(event) => updateGlobalField("settingKey", event.target.value)}
+                        value={globalForm.settingKey}
+                      />
+                    </SettingField>
+                    <SettingField label="Setting value">
+                      <input
+                        className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                        onChange={(event) => updateGlobalField("settingValue", event.target.value)}
+                        value={globalForm.settingValue}
+                      />
+                    </SettingField>
+                    <SettingField label="Description">
+                      <input
+                        className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                        onChange={(event) => updateGlobalField("description", event.target.value)}
+                        value={globalForm.description}
+                      />
+                    </SettingField>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button disabled={Boolean(globalSavingId)} type="submit">
+                      <Save className="h-4 w-4" />
+                      {globalSavingId ? "Saving..." : globalForm.id ? "Update setting" : "Create setting"}
+                    </Button>
+                    <Button onClick={closeGlobalForm} type="button" variant="outline">
+                      <X className="h-4 w-4" />
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              ) : null}
               {status === "loading" ? (
                 <div className="p-5 text-sm text-slate-500">Loading global settings...</div>
-              ) : SETTING_DEFINITIONS.length === 0 ? (
+              ) : systemSettings.length === 0 ? (
                 <div className="p-5 text-sm text-slate-500">No settings configured.</div>
               ) : (
                 <div className="overflow-x-auto">
-                  <div className="grid min-w-[920px] grid-cols-[220px_1fr_180px] border-b border-slate-200 bg-slate-100 px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">
-                    <span>Key</span>
-                    <span>Description</span>
+                  <div className="grid min-w-[980px] grid-cols-[180px_160px_1fr_180px] border-b border-slate-200 bg-slate-100 px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">
+                    <span>Group / Key</span>
                     <span>Value</span>
+                    <span>Description</span>
+                    <span>Actions</span>
                   </div>
-                  {SETTING_DEFINITIONS.map((definition) => {
-                    const setting = globalSettingsByKey.get(definition.key);
-
-                    return (
-                      <div className="grid min-w-[920px] grid-cols-[220px_1fr_180px] items-center border-b border-slate-200 px-5 py-4 last:border-b-0" key={definition.key}>
-                        <div className="min-w-0">
-                          <p className="truncate font-mono text-sm font-semibold text-slate-950">{definition.key}</p>
-                          <p className="mt-1 text-xs text-slate-500">{definition.label}</p>
-                        </div>
-                        <p className="text-sm text-slate-600">{setting?.description ?? definition.description}</p>
-                        <div className="flex items-center justify-end gap-2">
-                          <Badge className="rounded-md bg-slate-100 text-slate-700">{formatSettingValue(setting?.settingValue)}</Badge>
-                        </div>
+                  {systemSettings.map((setting) => (
+                    <div
+                      className="grid min-w-[980px] grid-cols-[180px_160px_1fr_180px] items-start border-b border-slate-200 px-5 py-4 last:border-b-0"
+                      key={setting.id ?? setting.settingKey}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-mono text-sm font-semibold text-slate-950">{setting.settingKey}</p>
+                        <p className="mt-1 text-xs text-slate-500">{setting.settingGroup ?? SETTING_GROUP}</p>
                       </div>
-                    );
-                  })}
+                      <div className="pt-1">
+                        <Badge className="rounded-md bg-slate-100 text-slate-700">{formatSettingValue(setting.settingValue)}</Badge>
+                      </div>
+                      <div className="text-sm text-slate-600">
+                        <p className="break-words">{setting.description ?? "No description"}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {canEditGlobalSettings ? (
+                          <>
+                            <Button
+                              disabled={globalSavingId === setting.id}
+                              onClick={() => editGlobalSetting(setting)}
+                              size="icon"
+                              type="button"
+                              variant="outline"
+                              aria-label={`Edit global setting ${setting.settingKey}`}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              disabled={globalDeletingId === setting.id}
+                              onClick={() => void deleteGlobalSetting(setting)}
+                              size="icon"
+                              type="button"
+                              variant="outline"
+                              aria-label={`Delete global setting ${setting.settingKey}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </>
+                        ) : (
+                          <span className="text-sm text-slate-500">Read only</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </CardContent>
@@ -777,5 +991,25 @@ function SettingInput({
       type={definition.kind === "number" ? "number" : "text"}
       value={value}
     />
+  );
+}
+
+function SettingField({
+  children,
+  label,
+  required = false,
+}: {
+  children: React.ReactNode;
+  label: string;
+  required?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="text-sm font-semibold text-slate-700">
+        {label}
+        {required ? <span className="text-primary"> *</span> : null}
+      </span>
+      <span className="mt-2 block">{children}</span>
+    </label>
   );
 }
