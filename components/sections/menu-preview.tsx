@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import { getLocalizedMenuItems } from "@/lib/localized-data";
+import { resolveBackendMediaUrl } from "@/lib/media-url";
 
 export function MenuPreview({ locale }: { locale: Locale }) {
   const dict = getDictionary(locale);
@@ -37,7 +38,7 @@ export function MenuPreview({ locale }: { locale: Locale }) {
                   alt={item.name}
                   className="h-full w-full object-cover"
                   loading="lazy"
-                  src={item.imageUrl ?? "/images/umika-hero.png"}
+                  src={resolveBackendMediaUrl(item.imageUrl) || "/images/umika-hero.png"}
                 />
               </div>
               <CardHeader>

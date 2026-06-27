@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { LocationDto, SpringPage } from "@/lib/location-types";
 import type { MenuCategoryDto, MenuItemDto, MenuItemImageDto } from "@/lib/menu-management-types";
+import { resolveBackendMediaUrl } from "@/lib/media-url";
 import { cn } from "@/lib/utils";
 
 type MenuLocationContext = {
@@ -66,6 +67,8 @@ type MenuFormState =
       id: string;
       menuItemId: string;
       imageUrl: string;
+      imageFile: File | null;
+      fileLabel: string;
       isPrimary: boolean;
       sortOrder: string;
     };
@@ -116,6 +119,8 @@ const emptyImageForm = (menuItemId = ""): MenuFormState => ({
   id: "",
   menuItemId,
   imageUrl: "",
+  imageFile: null,
+  fileLabel: "",
   isPrimary: false,
   sortOrder: "0",
 });
@@ -420,6 +425,8 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
       id: image.id,
       menuItemId: image.menuItemId,
       imageUrl: image.imageUrl ?? "",
+      imageFile: null,
+      fileLabel: "",
       isPrimary: image.isPrimary ?? false,
       sortOrder: String(image.sortOrder ?? 0),
     });
@@ -448,6 +455,44 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setSaving(true);
     setMessage(null);
     setError(null);
+
+    if (form.kind === "image" && form.imageFile) {
+      const uploadFormData = new FormData();
+      uploadFormData.set("menuItemId", form.menuItemId);
+      uploadFormData.set("file", form.imageFile);
+      uploadFormData.set("isPrimary", String(form.isPrimary));
+      uploadFormData.set("sortOrder", form.sortOrder.trim() || "0");
+
+      const uploadResponse = await fetch("/api/manager/menu-item-images/upload", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: uploadFormData,
+        cache: "no-store",
+      }).catch(() => null);
+
+      if (!uploadResponse?.ok) {
+        const body = uploadResponse ? await uploadResponse.json().catch(() => null) : null;
+        setSaving(false);
+        setError(typeof body?.message === "string" ? body.message : "Unable to upload menu image.");
+        return;
+      }
+
+      if (form.id) {
+        await fetch(`/api/manager/menu-item-images/${form.id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        }).catch(() => null);
+      }
+
+      setSaving(false);
+      setMessage(form.id ? "Menu image replaced." : "Menu image uploaded.");
+      closeForm();
+      await loadCatalog();
+      return;
+    }
 
     const payload = buildPayload(form);
     const endpoint = getEntityEndpoint(form.kind, form.id);
@@ -493,7 +538,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setMessage(null);
     setError(null);
 
-    const response = await fetch(getEntityEndpoint(kind, id), {
+    const response = await fetch(getDeleteEndpoint(kind, id), {
       method: "DELETE",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -516,6 +561,14 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     }
 
     await loadCatalog();
+  }
+
+  async function deleteImage(image: MenuItemImageDto, itemName: string) {
+    if (!image.id) {
+      return;
+    }
+
+    await deleteEntity("image", image.id, `image for ${itemName}`);
   }
 
   const selectedCategoryOptions = useMemo(
@@ -799,14 +852,29 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
                       ))}
                     </select>
                   </Field>
-                  <Field label="Image URL" className="lg:col-span-2">
+                  <Field label="Upload image" className="lg:col-span-2">
                     <input
+                      accept="image/*"
                       className={inputClass}
-                      value={form.imageUrl}
-                      onChange={(event) => setForm({ ...form, imageUrl: event.target.value })}
-                      placeholder="/images/menu/item.jpg or a remote URL"
-                      required
+                      type="file"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0] ?? null;
+                        setForm((current) =>
+                          current.kind === "image"
+                            ? {
+                                ...current,
+                                imageFile: file,
+                                fileLabel: file?.name ?? "",
+                              }
+                            : current,
+                        );
+                      }}
                     />
+                    <p className="text-xs text-slate-500">
+                      {form.id ? "Choose a new file to replace the current image, or leave it empty to keep metadata only." : "Choose an image file to upload."}
+                    </p>
+                    {form.fileLabel ? <p className="text-xs font-medium text-slate-700">Selected: {form.fileLabel}</p> : null}
+                    {form.id && form.imageUrl ? <p className="break-all text-xs text-slate-500">Current URL: {form.imageUrl}</p> : null}
                   </Field>
                   <Field label="Sort order">
                     <input
@@ -821,7 +889,11 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
                       <input
                         checked={form.isPrimary}
                         type="checkbox"
-                        onChange={(event) => setForm({ ...form, isPrimary: event.target.checked })}
+                        onChange={(event) =>
+                          setForm((current) =>
+                            current.kind === "image" ? { ...current, isPrimary: event.target.checked } : current,
+                          )
+                        }
                       />
                       Primary image
                     </label>
@@ -986,23 +1058,35 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
                         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                           {itemImages.length > 0 ? (
                             itemImages.map((image) => (
-                              <button
+                              <div
                                 key={image.id}
-                                type="button"
                                 className={cn(
-                                  "group overflow-hidden rounded-md border border-slate-200 text-left transition-colors hover:border-primary/40",
+                                  "group relative overflow-hidden rounded-md border border-slate-200 text-left transition-colors hover:border-primary/40",
                                   selectedItemId === item.id ? "bg-primary/5" : "bg-white",
                                 )}
-                                onClick={() => editImage(image)}
                               >
+                                <button
+                                  type="button"
+                                  className="block w-full text-left"
+                                  onClick={() => editImage(image)}
+                                >
                                 <div className="aspect-[4/3] w-full bg-slate-100">
-                                  <img alt={item.name} className="h-full w-full object-cover" src={image.imageUrl} />
+                                  <img alt={item.name} className="h-full w-full object-cover" src={resolveBackendMediaUrl(image.imageUrl)} />
                                 </div>
                                 <div className="flex items-center justify-between gap-2 p-3 text-xs text-slate-600">
                                   <span className="truncate font-medium text-slate-950">{image.isPrimary ? "Primary image" : "Menu image"}</span>
                                   <span>{image.sortOrder ?? 0}</span>
                                 </div>
-                              </button>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-md border border-slate-200 bg-white/95 text-slate-600 shadow-sm transition-colors hover:border-destructive hover:text-destructive"
+                                  onClick={() => void deleteImage(image, item.name)}
+                                  aria-label={`Delete image for ${item.name}`}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
                             ))
                           ) : (
                             <div className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-500">
@@ -1070,6 +1154,14 @@ function getEntityEndpoint(kind: MenuFormState["kind"], id: string) {
         : "/api/manager/menu-item-images";
 
   return id ? `${base}/${id}` : base;
+}
+
+function getDeleteEndpoint(kind: MenuFormState["kind"], id: string) {
+  if (kind === "image") {
+    return id ? `/api/manager/menu-item-images/${id}/picture` : "/api/manager/menu-item-images/picture";
+  }
+
+  return getEntityEndpoint(kind, id);
 }
 
 function sortCategory(a: MenuCategoryDto, b: MenuCategoryDto) {

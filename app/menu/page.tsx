@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getDictionary } from "@/lib/i18n";
 import { getCurrentLocale } from "@/lib/i18n-server";
 import { getLocalizedMenuItems } from "@/lib/localized-data";
+import { resolveBackendMediaUrl } from "@/lib/media-url";
 
 export default async function MenuPage() {
   const locale = await getCurrentLocale();
@@ -32,7 +33,12 @@ export default async function MenuPage() {
         {menuItems.map((item) => (
           <Card key={item.id} className="flex flex-col">
             <div className="aspect-[4/3] overflow-hidden rounded-t-md bg-muted">
-              <img alt={item.name} className="h-full w-full object-cover" loading="lazy" src={item.imageUrl ?? "/images/umika-hero.png"} />
+              <img
+                alt={item.name}
+                className="h-full w-full object-cover"
+                loading="lazy"
+                src={resolveBackendMediaUrl(item.imageUrl) || "/images/umika-hero.png"}
+              />
             </div>
             <CardHeader>
               <div className="flex items-start justify-between gap-4">
