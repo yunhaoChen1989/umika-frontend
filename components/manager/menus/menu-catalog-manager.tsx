@@ -192,8 +192,14 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
             return false;
           }
 
+          const itemMatchesSelectedLocation = item.locationId === null || item.locationId === selectedLocationId;
+
+          if (!itemMatchesSelectedLocation) {
+            return false;
+          }
+
           if (category.locationId === null) {
-            return item.locationId === null;
+            return true;
           }
 
           return item.locationId === null || item.locationId === category.locationId;
@@ -310,6 +316,12 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
       return;
     }
 
+    const stored = getStoredLocationContext();
+
+    if (stored.locationId || stored.locationCode) {
+      return;
+    }
+
     const firstActiveLocation = locations.find((location) => location.isActive !== false) ?? locations[0];
 
     if (firstActiveLocation?.id) {
@@ -351,7 +363,13 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
 
   function startCreateItem(categoryId = selectedCategoryId) {
     const categoryLocationId = categoryById.get(categoryId)?.locationId;
-    setForm(emptyItemForm(categoryId, categoryLocationId === undefined ? selectedLocationId : categoryLocationId ?? ""));
+    const itemLocationId = canChangeLocation
+      ? categoryLocationId === undefined
+        ? selectedLocationId
+        : categoryLocationId ?? ""
+      : selectedLocationId || categoryLocationId || "";
+
+    setForm(emptyItemForm(categoryId, itemLocationId));
     setIsFormVisible(true);
     setMessage(null);
     setError(null);
@@ -391,14 +409,18 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
       return;
     }
 
+    const categoryLocationId = categoryById.get(item.categoryId ?? "")?.locationId ?? "";
+    const itemLocationId = canChangeLocation
+      ? item.locationId === undefined
+        ? categoryLocationId
+        : item.locationId ?? ""
+      : selectedLocationId || item.locationId || categoryLocationId;
+
     setForm({
       kind: "item",
       id: item.id,
       categoryId: item.categoryId ?? selectedCategoryId,
-      locationId:
-        item.locationId === undefined
-          ? categoryById.get(item.categoryId ?? "")?.locationId ?? ""
-          : item.locationId ?? "",
+      locationId: itemLocationId,
       name: item.name ?? "",
       description: item.description ?? "",
       price: item.price?.toString() ?? "",
@@ -494,7 +516,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
       return;
     }
 
-    const payload = buildPayload(form);
+    const payload = buildPayload(form, canChangeLocation ? null : selectedLocationId || null);
     const endpoint = getEntityEndpoint(form.kind, form.id);
 
     const response = await fetch(endpoint, {
@@ -588,8 +610,12 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
 
         const category = categoryById.get(item.categoryId);
         const categoryLocationId = category?.locationId ?? null;
+        const itemMatchesSelectedLocation = item.locationId === null || item.locationId === selectedLocationId;
 
-        return item.locationId === null || item.locationId === selectedLocationId || categoryLocationId === null || categoryLocationId === selectedLocationId;
+        return (
+          itemMatchesSelectedLocation &&
+          (categoryLocationId === null || categoryLocationId === selectedLocationId || item.locationId === null)
+        );
       }),
     [categoryById, items, selectedLocationId],
   );
@@ -677,7 +703,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
               <Button type="button" variant="outline" onClick={() => setForm(emptyCategoryForm(selectedLocationId))}>
                 Category
               </Button>
-              <Button type="button" variant="outline" onClick={() => setForm(emptyItemForm(selectedCategoryId, selectedLocationId))}>
+              <Button type="button" variant="outline" onClick={() => startCreateItem()} disabled={!selectedLocationId}>
                 Item
               </Button>
               <Button type="button" variant="outline" onClick={() => setForm(emptyImageForm(selectedItemId))}>
@@ -694,7 +720,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
                   <Field label="Store">
                     <select
                       className={inputClass}
-                      value={form.locationId}
+                      value={canChangeLocation ? form.locationId : selectedLocationId || form.locationId}
                       onChange={(event) => setForm({ ...form, locationId: event.target.value })}
                       disabled={!canChangeLocation}
                     >
@@ -746,7 +772,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
                   <Field label="Store">
                     <select
                       className={inputClass}
-                      value={form.locationId}
+                      value={canChangeLocation ? form.locationId : selectedLocationId || form.locationId}
                       onChange={(event) => setForm({ ...form, locationId: event.target.value })}
                       disabled={!canChangeLocation}
                     >
@@ -1110,7 +1136,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
   );
 }
 
-function buildPayload(form: MenuFormState) {
+function buildPayload(form: MenuFormState, forcedItemLocationId: string | null = null) {
   if (form.kind === "category") {
     return {
       locationId: form.locationId || null,
@@ -1125,7 +1151,7 @@ function buildPayload(form: MenuFormState) {
   if (form.kind === "item") {
     return {
       categoryId: form.categoryId,
-      locationId: form.locationId || null,
+      locationId: (forcedItemLocationId ?? form.locationId) || null,
       name: form.name.trim(),
       description: form.description.trim() || null,
       price: form.price.trim(),
