@@ -137,6 +137,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
   const [selectedItemId, setSelectedItemId] = useState("");
   const [form, setForm] = useState<MenuFormState>(emptyCategoryForm());
   const [isFormVisible, setIsFormVisible] = useState(initialKind !== "category");
+  const [expandedCategoryIds, setExpandedCategoryIds] = useState<Record<string, boolean>>({});
   const [status, setStatus] = useState<"loading" | "ready" | "unauthenticated" | "error">("loading");
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -456,6 +457,17 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setIsFormVisible(true);
     setMessage(null);
     setError(null);
+  }
+
+  function toggleCategoryExpansion(categoryId: string | null) {
+    if (!categoryId) {
+      return;
+    }
+
+    setExpandedCategoryIds((current) => ({
+      ...current,
+      [categoryId]: !current[categoryId],
+    }));
   }
 
   function closeForm() {
@@ -994,9 +1006,27 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
               ) : null}
               {tree.map((node) => (
                 <div key={node.category.id} className="rounded-md border border-slate-200">
-                  <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
+                  <div
+                    className="flex w-full items-start justify-between gap-3 border-b border-slate-200 p-4 text-left"
+                    onClick={() => toggleCategoryExpansion(node.category.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        toggleCategoryExpansion(node.category.id);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={Boolean(expandedCategoryIds[node.category.id ?? ""])}
+                  >
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
+                        <ChevronRight
+                          className={cn(
+                            "h-4 w-4 shrink-0 text-slate-400 transition-transform",
+                            expandedCategoryIds[node.category.id ?? ""] ? "rotate-90" : "rotate-0",
+                          )}
+                        />
                         <SquareStack className="h-4 w-4 shrink-0 text-primary" />
                         <p className="truncate text-sm font-semibold text-slate-950">{node.category.name}</p>
                         {selectedCategoryId === node.category.id ? <Badge>selected</Badge> : null}
@@ -1009,15 +1039,27 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
                       {node.category.description ? <p className="mt-2 text-sm text-slate-600">{node.category.description}</p> : null}
                       <div className="mt-2 flex flex-wrap gap-2">{categoryScopeBadge(node.category.locationId)}</div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button type="button" size="icon" variant="outline" onClick={() => editCategory(node.category)} aria-label={`Edit ${node.category.name}`}>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          editCategory(node.category);
+                        }}
+                        aria-label={`Edit ${node.category.name}`}
+                      >
                         <Pencil className="h-4 w-4" />
                       </Button>
                       <Button
                         type="button"
                         size="icon"
                         variant="outline"
-                        onClick={() => startCreateItem(node.category.id ?? selectedCategoryId)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          startCreateItem(node.category.id ?? selectedCategoryId);
+                        }}
                         aria-label={`Add item under ${node.category.name}`}
                       >
                         <Plus className="h-4 w-4" />
@@ -1027,7 +1069,10 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
                         size="icon"
                         variant="outline"
                         disabled={deletingId === node.category.id}
-                        onClick={() => void deleteEntity("category", node.category.id ?? "", node.category.name)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void deleteEntity("category", node.category.id ?? "", node.category.name);
+                        }}
                         aria-label={`Delete ${node.category.name}`}
                       >
                         <Trash2 className="h-4 w-4" />
@@ -1035,9 +1080,10 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
                     </div>
                   </div>
 
-                  <div className="divide-y divide-slate-200">
-                    {node.items.map(({ item, images: itemImages }) => (
-                      <div key={item.id} className="space-y-3 p-4">
+                  {expandedCategoryIds[node.category.id ?? ""] ? (
+                    <div className="divide-y divide-slate-200">
+                      {node.items.map(({ item, images: itemImages }) => (
+                        <div key={item.id} className="space-y-3 p-4">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
@@ -1121,11 +1167,12 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
                           )}
                         </div>
                       </div>
-                    ))}
-                    {node.items.length === 0 ? (
-                      <div className="p-4 text-sm text-slate-500">No items yet under this category.</div>
-                    ) : null}
-                  </div>
+                      ))}
+                      {node.items.length === 0 ? (
+                        <div className="p-4 text-sm text-slate-500">No items yet under this category.</div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
