@@ -105,6 +105,8 @@ type MenuFormState =
       customDescription: string;
       customPrice: string;
       customImageUrl: string;
+      customImageFile: File | null;
+      customImageFileLabel: string;
     }
   | {
       kind: "image";
@@ -189,6 +191,8 @@ const emptyOverrideForm = (params: {
   customDescription: params.override?.customDescription ?? "",
   customPrice: params.override?.customPrice?.toString() ?? "",
   customImageUrl: params.override?.customImageUrl ?? "",
+  customImageFile: null,
+  customImageFileLabel: "",
 });
 
 const emptyImageForm = (menuItemId = ""): MenuFormState => ({
@@ -281,6 +285,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
   const [canChangeLocation, setCanChangeLocation] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
 
   const locationById = useMemo(() => new Map(locations.map((location) => [location.id, location])), [locations]);
   const categoryById = useMemo(() => new Map(categories.map((category) => [category.id, category])), [categories]);
@@ -595,6 +600,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setLocationSelectionSource("manual");
     setMessage(null);
     setError(null);
+    setDialogError(null);
     setSelectedCategoryId("");
     setSelectedItemId("");
     setForm(emptyCategoryForm(location.id));
@@ -606,6 +612,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setLocationSelectionSource("manual");
     setMessage(null);
     setError(null);
+    setDialogError(null);
     setSelectedCategoryId("");
     setSelectedItemId("");
     setForm(emptyCategoryForm());
@@ -617,6 +624,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setIsFormVisible(true);
     setMessage(null);
     setError(null);
+    setDialogError(null);
   }
 
   function startCreateItem(categoryId = selectedCategoryId) {
@@ -627,6 +635,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setIsFormVisible(true);
     setMessage(null);
     setError(null);
+    setDialogError(null);
   }
 
   function startCreateImage(menuItemId = selectedItemId) {
@@ -634,6 +643,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setIsFormVisible(true);
     setMessage(null);
     setError(null);
+    setDialogError(null);
   }
 
   function editCategory(category: MenuCategoryDto) {
@@ -661,6 +671,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setIsFormVisible(true);
     setMessage(null);
     setError(null);
+    setDialogError(null);
   }
 
   function editItem(item: MenuItemDto) {
@@ -699,6 +710,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setIsFormVisible(true);
     setMessage(null);
     setError(null);
+    setDialogError(null);
   }
 
   function editImage(image: MenuItemImageDto) {
@@ -720,6 +732,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setIsFormVisible(true);
     setMessage(null);
     setError(null);
+    setDialogError(null);
   }
 
   function startOverrideCategory(category: MenuCategoryDto) {
@@ -743,6 +756,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     );
     setMessage(null);
     setError(null);
+    setDialogError(null);
   }
 
   function startOverrideItem(item: MenuItemDto) {
@@ -766,6 +780,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     );
     setMessage(null);
     setError(null);
+    setDialogError(null);
   }
 
   function toggleCategoryExpansion(categoryId: string | null) {
@@ -783,12 +798,14 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setIsFormVisible(false);
     setMessage(null);
     setError(null);
+    setDialogError(null);
   }
 
   function closeOverrideForm() {
     setOverrideForm(null);
     setMessage(null);
     setError(null);
+    setDialogError(null);
   }
 
   async function saveForm(event: FormEvent<HTMLFormElement>) {
@@ -804,6 +821,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setSaving(true);
     setMessage(null);
     setError(null);
+    setDialogError(null);
 
     try {
       if (form.kind === "image" && form.imageFile) {
@@ -828,7 +846,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
         }).catch(() => null);
 
         if (!uploadResponse?.ok) {
-          setError(await getApiErrorMessage(uploadResponse, "Unable to upload menu image."));
+          setDialogError(await getApiErrorMessage(uploadResponse, "Unable to upload menu image."));
           return;
         }
 
@@ -840,7 +858,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
           }).catch(() => null);
 
           if (!deleteResponse?.ok) {
-            setError(await getApiErrorMessage(deleteResponse, "Image uploaded, but the old image could not be removed."));
+            setDialogError(await getApiErrorMessage(deleteResponse, "Image uploaded, but the old image could not be removed."));
             return;
           }
         }
@@ -865,7 +883,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
       }).catch(() => null);
 
       if (!response?.ok) {
-        setError(await getApiErrorMessage(response, `Unable to save ${form.kind}.`));
+        setDialogError(await getApiErrorMessage(response, `Unable to save ${form.kind}.`));
         return;
       }
 
@@ -873,7 +891,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
       closeForm();
       await loadCatalog();
     } catch (saveError) {
-      setError(getErrorText(saveError) ?? `Unable to save ${form.kind}.`);
+      setDialogError(getErrorText(saveError) ?? `Unable to save ${form.kind}.`);
     } finally {
       setSaving(false);
     }
@@ -896,6 +914,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setOverrideSaving(true);
     setMessage(null);
     setError(null);
+    setDialogError(null);
 
     try {
       const payload = buildOverridePayload(overrideForm);
@@ -912,15 +931,36 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
       }).catch(() => null);
 
       if (!response?.ok) {
-        setError(await getApiErrorMessage(response, "Unable to save location override."));
+        setDialogError(await getApiErrorMessage(response, "Unable to save location override."));
         return;
+      }
+
+      if (overrideForm.targetType === "ITEM" && overrideForm.customImageFile) {
+        const uploadFormData = new FormData();
+        uploadFormData.set("locationId", overrideForm.locationId);
+        uploadFormData.set("menuItemId", overrideForm.targetId);
+        uploadFormData.set("file", overrideForm.customImageFile);
+
+        const uploadResponse = await fetch("/api/manager/location-menu-overrides/item-image", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: uploadFormData,
+          cache: "no-store",
+        }).catch(() => null);
+
+        if (!uploadResponse?.ok) {
+          setDialogError(await getApiErrorMessage(uploadResponse, "Override saved, but the image upload failed."));
+          return;
+        }
       }
 
       setMessage(overrideForm.id ? "Location override updated." : "Location override created.");
       closeOverrideForm();
       await loadCatalog();
     } catch (saveError) {
-      setError(getErrorText(saveError) ?? "Unable to save location override.");
+      setDialogError(getErrorText(saveError) ?? "Unable to save location override.");
     } finally {
       setOverrideSaving(false);
     }
@@ -943,6 +983,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setDeletingId(id);
     setMessage(null);
     setError(null);
+    setDialogError(null);
 
     if (kind === "override") {
       setOverrideDeletingId(id);
@@ -958,7 +999,12 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
       }).catch(() => null);
 
       if (!response?.ok) {
-        setError(await getApiErrorMessage(response, `Unable to delete ${kind}.`));
+        const message = await getApiErrorMessage(response, `Unable to delete ${kind}.`);
+        if (kind === "override" && overrideForm) {
+          setDialogError(message);
+        } else {
+          setError(message);
+        }
         return;
       }
 
@@ -970,7 +1016,12 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
 
       await loadCatalog();
     } catch (deleteError) {
-      setError(getErrorText(deleteError) ?? `Unable to delete ${kind}.`);
+      const message = getErrorText(deleteError) ?? `Unable to delete ${kind}.`;
+      if (kind === "override" && overrideForm) {
+        setDialogError(message);
+      } else {
+        setError(message);
+      }
     } finally {
       setDeletingId(null);
       setOverrideDeletingId(null);
@@ -1136,6 +1187,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
                       : "Select a location before editing a menu item."}
                 </DialogDescription>
               </DialogHeader>
+              <DialogErrorAlert message={dialogError} />
 
               <Field label="Store">
                 <select
@@ -1263,6 +1315,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
                       : "Select a location before editing a category."}
                 </DialogDescription>
               </DialogHeader>
+              <DialogErrorAlert message={dialogError} />
               <Field label="Store">
                 <select
                   className={inputClass}
@@ -1348,6 +1401,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
                     : "Select a location before adding menu images."}
                 </DialogDescription>
               </DialogHeader>
+              <DialogErrorAlert message={dialogError} />
               <Field label="Menu item">
                 <select
                   className={inputClass}
@@ -1439,6 +1493,7 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
                   {selectedLocation ? `Editing store-specific values for ${selectedLocation.name}.` : "Select a store before editing overrides."}
                 </DialogDescription>
               </DialogHeader>
+              <DialogErrorAlert message={dialogError} />
               <Field label="Target">
                 <input className={inputClass} value={overrideFormState.targetName} readOnly />
               </Field>
@@ -1511,13 +1566,27 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
                       placeholder="Leave blank to inherit"
                     />
                   </Field>
-                  <Field label="Override image URL">
+                  <Field label="Override image">
                     <input
+                      accept="image/*"
                       className={inputClass}
-                      value={overrideFormState.customImageUrl}
-                      onChange={(event) => setOverrideForm({ ...overrideFormState, customImageUrl: event.target.value })}
-                      placeholder="Use upload button or paste an image URL"
+                      type="file"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0] ?? null;
+                        setOverrideForm({
+                          ...overrideFormState,
+                          customImageFile: file,
+                          customImageFileLabel: file?.name ?? "",
+                        });
+                      }}
                     />
+                    <p className="text-xs text-slate-500">Upload a store-specific image. Leave empty to keep the current inherited image.</p>
+                    {overrideFormState.customImageFileLabel ? (
+                      <p className="text-xs font-medium text-slate-700">Selected: {overrideFormState.customImageFileLabel}</p>
+                    ) : null}
+                    {overrideFormState.customImageUrl ? (
+                      <p className="break-all text-xs text-slate-500">Current override image: {overrideFormState.customImageUrl}</p>
+                    ) : null}
                   </Field>
                 </>
               ) : null}
@@ -1911,6 +1980,21 @@ function Field({
       <span className="block text-xs font-semibold uppercase tracking-widest text-slate-500">{label}</span>
       {children}
     </label>
+  );
+}
+
+function DialogErrorAlert({ message }: { message: string | null }) {
+  if (!message) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive lg:col-span-2">
+      <div className="flex items-start gap-2">
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>{message}</span>
+      </div>
+    </div>
   );
 }
 
