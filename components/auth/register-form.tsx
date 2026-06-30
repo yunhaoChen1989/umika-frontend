@@ -91,6 +91,7 @@ export function RegisterForm({ copy, locale, redirectPath }: { copy: RegisterCop
     if (body?.accessToken) {
       localStorage.setItem("umika_access_token", body.accessToken);
       localStorage.setItem("umika_token_type", body.tokenType ?? "Bearer");
+      window.dispatchEvent(new Event("umika-auth-changed"));
     }
 
     router.push(redirectPath);

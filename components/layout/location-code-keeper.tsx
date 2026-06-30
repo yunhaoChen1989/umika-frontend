@@ -8,6 +8,20 @@ const locationIdStorageKey = "umika_location_id";
 const locationIdAliasStorageKey = "location_id";
 const resolvedLocationCodeStorageKey = "umika_location_id_code";
 
+type DefaultLocationPayload =
+  | string
+  | {
+      id?: string | null;
+      locationId?: string | null;
+      location_id?: string | null;
+      locationCode?: string | null;
+      location_code?: string | null;
+      code?: string | null;
+      defaultLocation?: DefaultLocationPayload | null;
+      default_location?: DefaultLocationPayload | null;
+      location?: DefaultLocationPayload | null;
+    };
+
 function removeStoredLocationId() {
   sessionStorage.removeItem(locationIdStorageKey);
   localStorage.removeItem(locationIdStorageKey);
@@ -15,6 +29,18 @@ function removeStoredLocationId() {
   localStorage.removeItem(locationIdAliasStorageKey);
   sessionStorage.removeItem(resolvedLocationCodeStorageKey);
   localStorage.removeItem(resolvedLocationCodeStorageKey);
+}
+
+function removeStoredLocationCode() {
+  sessionStorage.removeItem(locationCodeStorageKey);
+  localStorage.removeItem(locationCodeStorageKey);
+  sessionStorage.removeItem(resolvedLocationCodeStorageKey);
+  localStorage.removeItem(resolvedLocationCodeStorageKey);
+}
+
+function storeLocationCode(locationCode: string) {
+  sessionStorage.setItem(locationCodeStorageKey, locationCode);
+  localStorage.setItem(locationCodeStorageKey, locationCode);
 }
 
 function storeLocationId(locationCode: string, locationId: string) {
@@ -26,6 +52,34 @@ function storeLocationId(locationCode: string, locationId: string) {
   localStorage.setItem(resolvedLocationCodeStorageKey, locationCode);
 }
 
+function storeLocationIdOnly(locationId: string) {
+  sessionStorage.setItem(locationIdStorageKey, locationId);
+  localStorage.setItem(locationIdStorageKey, locationId);
+  sessionStorage.setItem(locationIdAliasStorageKey, locationId);
+  localStorage.setItem(locationIdAliasStorageKey, locationId);
+}
+
+function normalizeDefaultLocation(payload: DefaultLocationPayload | null): { locationId: string | null; locationCode: string | null } {
+  if (!payload) {
+    return { locationId: null, locationCode: null };
+  }
+
+  if (typeof payload === "string") {
+    return { locationId: payload.trim() || null, locationCode: null };
+  }
+
+  const nested = payload.defaultLocation ?? payload.default_location ?? payload.location;
+
+  if (nested) {
+    return normalizeDefaultLocation(nested);
+  }
+
+  return {
+    locationId: payload.locationId ?? payload.location_id ?? payload.id ?? null,
+    locationCode: payload.locationCode ?? payload.location_code ?? payload.code ?? null,
+  };
+}
+
 export function LocationCodeKeeper() {
   const pathname = usePathname();
   const router = useRouter();
@@ -33,6 +87,11 @@ export function LocationCodeKeeper() {
 
   useEffect(() => {
     const queryLocationCode = searchParams.get("locationCode")?.trim() ?? searchParams.get("storeCode")?.trim();
+    const queryLocationId =
+      searchParams.get("locationId")?.trim() ??
+      searchParams.get("location")?.trim() ??
+      searchParams.get("storeId")?.trim() ??
+      searchParams.get("store")?.trim();
 
     if (queryLocationCode) {
       const storedLocationCode = sessionStorage.getItem(locationCodeStorageKey) ?? localStorage.getItem(locationCodeStorageKey);
@@ -41,8 +100,7 @@ export function LocationCodeKeeper() {
         removeStoredLocationId();
       }
 
-      sessionStorage.setItem(locationCodeStorageKey, queryLocationCode);
-      localStorage.setItem(locationCodeStorageKey, queryLocationCode);
+      storeLocationCode(queryLocationCode);
 
       if (!searchParams.get("locationCode")) {
         const nextParams = new URLSearchParams(searchParams.toString());
@@ -54,15 +112,81 @@ export function LocationCodeKeeper() {
       return;
     }
 
-    const storedLocationCode = sessionStorage.getItem(locationCodeStorageKey) ?? localStorage.getItem(locationCodeStorageKey);
+    if (queryLocationId) {
+      removeStoredLocationCode();
+      storeLocationIdOnly(queryLocationId);
 
-    if (!storedLocationCode) {
+      if (!searchParams.get("locationId")) {
+        const nextParams = new URLSearchParams(searchParams.toString());
+        nextParams.delete("location");
+        nextParams.delete("storeId");
+        nextParams.delete("store");
+        nextParams.set("locationId", queryLocationId);
+        router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
+      }
+
       return;
     }
 
-    const nextParams = new URLSearchParams(searchParams.toString());
-    nextParams.set("locationCode", storedLocationCode);
-    router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
+    const storedLocationCode = sessionStorage.getItem(locationCodeStorageKey) ?? localStorage.getItem(locationCodeStorageKey);
+
+    if (storedLocationCode) {
+      const nextParams = new URLSearchParams(searchParams.toString());
+      nextParams.set("locationCode", storedLocationCode);
+      router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
+      return;
+    }
+
+    const controller = new AbortController();
+
+    async function loadDefaultLocation() {
+      const token = localStorage.getItem("umika_access_token");
+      const headers = new Headers();
+
+      if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+
+      const response = await fetch("/api/me/default-location", {
+        method: "GET",
+        headers,
+        cache: "no-store",
+        signal: controller.signal,
+      }).catch(() => null);
+
+      if (controller.signal.aborted || response?.status === 401 || response?.status === 403 || !response?.ok) {
+        return;
+      }
+
+      const defaultLocation = normalizeDefaultLocation((await response.json().catch(() => null)) as DefaultLocationPayload | null);
+
+      if (!defaultLocation.locationId && !defaultLocation.locationCode) {
+        return;
+      }
+
+      if (defaultLocation.locationCode) {
+        storeLocationCode(defaultLocation.locationCode);
+
+        if (defaultLocation.locationId) {
+          storeLocationId(defaultLocation.locationCode, defaultLocation.locationId);
+        }
+
+        const nextParams = new URLSearchParams(searchParams.toString());
+        nextParams.set("locationCode", defaultLocation.locationCode);
+        router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false });
+        return;
+      }
+
+      if (defaultLocation.locationId) {
+        storeLocationIdOnly(defaultLocation.locationId);
+      }
+    }
+
+    void loadDefaultLocation();
+
+    return () => {
+      controller.abort();
+    };
   }, [pathname, router, searchParams]);
 
   useEffect(() => {
@@ -73,7 +197,12 @@ export function LocationCodeKeeper() {
       localStorage.getItem(locationCodeStorageKey)?.trim();
 
     if (!locationCode) {
-      removeStoredLocationId();
+      const storedLocationId = sessionStorage.getItem(locationIdStorageKey) ?? localStorage.getItem(locationIdStorageKey);
+
+      if (!storedLocationId) {
+        removeStoredLocationId();
+      }
+
       return;
     }
 
@@ -112,8 +241,7 @@ export function LocationCodeKeeper() {
         return;
       }
 
-      sessionStorage.setItem(locationCodeStorageKey, activeLocationCode);
-      localStorage.setItem(locationCodeStorageKey, activeLocationCode);
+      storeLocationCode(activeLocationCode);
       storeLocationId(activeLocationCode, locationId);
     }
 
@@ -142,8 +270,12 @@ export function LocationCodeKeeper() {
         new URLSearchParams(window.location.search).get("locationCode")?.trim() ??
         sessionStorage.getItem(locationCodeStorageKey)?.trim() ??
         localStorage.getItem(locationCodeStorageKey)?.trim();
+      const locationId =
+        new URLSearchParams(window.location.search).get("locationId")?.trim() ??
+        sessionStorage.getItem(locationIdStorageKey)?.trim() ??
+        localStorage.getItem(locationIdStorageKey)?.trim();
 
-      if (!locationCode) {
+      if (!locationCode && !locationId) {
         return;
       }
 
@@ -156,11 +288,21 @@ export function LocationCodeKeeper() {
       if (url.pathname.startsWith("/api/locale")) {
         const nextPath = url.searchParams.get("next");
         const nextUrl = new URL(nextPath || "/", window.location.origin);
-        nextUrl.searchParams.set("locationCode", locationCode);
+        if (locationCode) {
+          nextUrl.searchParams.set("locationCode", locationCode);
+          nextUrl.searchParams.delete("locationId");
+        } else if (locationId) {
+          nextUrl.searchParams.set("locationId", locationId);
+        }
         url.searchParams.set("next", `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
       }
 
-      url.searchParams.set("locationCode", locationCode);
+      if (locationCode) {
+        url.searchParams.set("locationCode", locationCode);
+        url.searchParams.delete("locationId");
+      } else if (locationId) {
+        url.searchParams.set("locationId", locationId);
+      }
       anchor.href = `${url.pathname}${url.search}${url.hash}`;
     }
 

@@ -71,6 +71,7 @@ export type MenuCatalogItemDto = {
   isVisible: boolean | null;
   imageUrl?: string | null;
   images?: MenuCatalogImageDto[] | null;
+  isAvailable?: boolean | null;
 };
 
 export type MenuCatalogCategoryDto = {

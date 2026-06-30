@@ -1,5 +1,6 @@
 export type LocationDto = {
   id: string | null;
+  locationId?: string | null;
   locationCode?: string | null;
   name: string;
   phone: string | null;

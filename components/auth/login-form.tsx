@@ -60,6 +60,7 @@ export function LoginForm({ copy, redirectPath }: { copy: LoginCopy; redirectPat
     if (body?.accessToken) {
       localStorage.setItem("umika_access_token", body.accessToken);
       localStorage.setItem("umika_token_type", body.tokenType ?? "Bearer");
+      window.dispatchEvent(new Event("umika-auth-changed"));
     }
 
     router.push(redirectPath);
