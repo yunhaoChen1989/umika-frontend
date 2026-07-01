@@ -21,6 +21,68 @@ export type CartResponse = {
   updatedAt: string | null;
 };
 
+export type RedemptionPreviewResponse = {
+  availablePoints?: number | null;
+  requestedPoints?: number | null;
+  appliedPoints?: number | null;
+  maxRedeemablePoints?: number | null;
+  pointValue?: number | null;
+  redemptionAmount?: number | null;
+  subtotal?: number | null;
+  taxableAmount?: number | null;
+  taxRate?: number | null;
+  taxAmount?: number | null;
+  tax?: number | null;
+  tipAmount?: number | null;
+  finalTotal?: number | null;
+  total?: number | null;
+  [key: string]: unknown;
+};
+
+export type CheckoutOrderItemResponse = {
+  id?: string | null;
+  menuItemId?: string | null;
+  itemName?: string | null;
+  name?: string | null;
+  imageUrl?: string | null;
+  quantity?: number | null;
+  unitPrice?: number | null;
+  lineTotal?: number | null;
+  totalPrice?: number | null;
+  options?: unknown;
+  optionSnapshot?: unknown;
+  [key: string]: unknown;
+};
+
+export type CheckoutResponse = {
+  id?: string;
+  orderId?: string;
+  userId?: string | null;
+  locationId?: string | null;
+  addressId?: string | null;
+  orderNumber?: string | null;
+  orderType?: "PICKUP" | "DELIVERY" | "DINE_IN" | string | null;
+  status?: string | null;
+  subtotal?: number | null;
+  totalDiscount?: number | null;
+  taxRate?: number | null;
+  taxAmount?: number | null;
+  tax?: number | null;
+  tipAmount?: number | null;
+  finalTotal?: number | null;
+  total?: number | null;
+  customerNote?: string | null;
+  pointsRedeemed?: number | null;
+  rewardDiscountAmount?: number | null;
+  pointsEarned?: number | null;
+  items?: CheckoutOrderItemResponse[] | null;
+  taxes?: unknown[] | null;
+  discounts?: unknown[] | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  [key: string]: unknown;
+};
+
 export type BackendMenuItem = {
   id: string;
   categoryId: string | null;

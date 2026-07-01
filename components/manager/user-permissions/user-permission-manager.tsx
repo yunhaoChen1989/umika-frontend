@@ -23,6 +23,19 @@ type UserPermissionWireDto = Omit<UserPermissionDto, "userId" | "permissionCode"
   is_granted?: boolean;
 };
 
+type PermissionCodeDto = {
+  id?: string | null;
+  permissionGroup?: string | null;
+  permission_group?: string | null;
+  code?: string | null;
+  name?: string | null;
+  description?: string | null;
+  isActive?: boolean | null;
+  is_active?: boolean | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
 type PermissionFormState = {
   id: string;
   permissionCode: string;
@@ -40,6 +53,7 @@ const emptyForm: PermissionFormState = {
 export function UserPermissionManager() {
   const [users, setUsers] = useState<ManagerUserLookupDto[]>([]);
   const [locations, setLocations] = useState<LocationDto[]>([]);
+  const [permissionCodes, setPermissionCodes] = useState<PermissionCodeDto[]>([]);
   const [userPermissions, setUserPermissions] = useState<UserPermissionDto[]>([]);
   const [selectedUser, setSelectedUser] = useState<ManagerUserLookupDto | null>(null);
   const [emailQuery, setEmailQuery] = useState("");
@@ -53,6 +67,20 @@ export function UserPermissionManager() {
   const [error, setError] = useState<string | null>(null);
 
   const locationById = useMemo(() => new Map(locations.map((location) => [location.id, location])), [locations]);
+  const permissionCodeByCode = useMemo(
+    () => new Map(permissionCodes.map((permission) => [permission.code ?? "", permission])),
+    [permissionCodes],
+  );
+  const permissionCodesByGroup = useMemo(() => {
+    const groups = new Map<string, PermissionCodeDto[]>();
+
+    for (const permission of permissionCodes) {
+      const group = permission.permissionGroup ?? permission.permission_group ?? "GENERAL";
+      groups.set(group, [...(groups.get(group) ?? []), permission]);
+    }
+
+    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [permissionCodes]);
   const filteredLocations = useMemo(() => {
     const query = locationQuery.trim().toLowerCase();
 
@@ -69,9 +97,10 @@ export function UserPermissionManager() {
       .slice(0, 12);
   }, [locationQuery, locations]);
   const selectedLocation = form.locationId ? locationById.get(form.locationId) ?? null : null;
+  const selectedPermissionCode = form.permissionCode ? permissionCodeByCode.get(form.permissionCode) ?? null : null;
   const selectedUserPermissions = selectedUser?.id ? userPermissions.filter((item) => item.userId === selectedUser.id) : [];
 
-  const loadLocations = useCallback(async () => {
+  const loadCatalog = useCallback(async () => {
     const token = localStorage.getItem("umika_access_token");
 
     if (!token) {
@@ -79,20 +108,31 @@ export function UserPermissionManager() {
       return;
     }
 
-    const response = await fetch("/api/manager/locations?page=0&size=300&sort=name,asc", {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    }).catch(() => null);
+    const [locationsResponse, permissionCodesResponse] = await Promise.all([
+      fetch("/api/manager/locations?page=0&size=300&sort=name,asc", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      }).catch(() => null),
+      fetch("/api/manager/permission-codes?activeOnly=true", {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      }).catch(() => null),
+    ]);
+    const failedResponse = [locationsResponse, permissionCodesResponse].find((item) => !item?.ok);
 
-    if (!response?.ok) {
-      const body = response ? await response.json().catch(() => null) : null;
-      setStatus(response?.status === 401 || response?.status === 403 ? "unauthenticated" : "error");
-      setError(typeof body?.message === "string" ? body.message : "Unable to load store locations.");
+    if (failedResponse) {
+      const body = await failedResponse.json().catch(() => null);
+      setStatus(failedResponse.status === 401 || failedResponse.status === 403 ? "unauthenticated" : "error");
+      setError(typeof body?.message === "string" ? body.message : "Unable to load permission catalog.");
       return;
     }
 
-    const page = (await response.json()) as SpringPage<LocationDto>;
-    setLocations(page.content ?? []);
+    const locationsPage = (await locationsResponse!.json()) as SpringPage<LocationDto>;
+    const permissionCodesPayload = (await permissionCodesResponse!.json()) as SpringPage<PermissionCodeDto> | PermissionCodeDto[];
+    const loadedPermissionCodes = Array.isArray(permissionCodesPayload) ? permissionCodesPayload : permissionCodesPayload.content ?? [];
+
+    setLocations(locationsPage.content ?? []);
+    setPermissionCodes(loadedPermissionCodes.map(normalizePermissionCode).filter((item): item is PermissionCodeDto => Boolean(item)));
     setStatus("ready");
   }, []);
 
@@ -137,9 +177,9 @@ export function UserPermissionManager() {
   }, []);
 
   useEffect(() => {
-    void loadLocations();
+    void loadCatalog();
     void loadUserPermissions();
-  }, [loadLocations, loadUserPermissions]);
+  }, [loadCatalog, loadUserPermissions]);
 
   async function searchUsers(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
@@ -335,7 +375,7 @@ export function UserPermissionManager() {
       <div className="flex flex-wrap justify-end gap-2">
         <Button
           onClick={() => {
-            void loadLocations();
+            void loadCatalog();
             void loadUserPermissions(selectedUser?.id);
           }}
           type="button"
@@ -424,13 +464,29 @@ export function UserPermissionManager() {
                 </Field>
 
                 <Field label="Permission code" required>
-                  <input
-                    className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 font-mono text-sm uppercase outline-none focus:ring-2 focus:ring-ring"
+                  <select
+                    className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
                     onChange={(event) => setForm((current) => ({ ...current, permissionCode: event.target.value }))}
-                    placeholder="STORE_EDIT"
                     required
                     value={form.permissionCode}
-                  />
+                  >
+                    <option value="">Select a permission code</option>
+                    {permissionCodesByGroup.map(([group, codes]) => (
+                      <optgroup key={group} label={group}>
+                        {codes.map((permission) => (
+                          <option key={permission.code ?? permission.id} value={permission.code ?? ""}>
+                            {permission.code} - {permission.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  {selectedPermissionCode ? (
+                    <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                      <p className="font-semibold text-slate-950">{selectedPermissionCode.name ?? selectedPermissionCode.code}</p>
+                      <p className="mt-1 text-xs text-slate-500">{selectedPermissionCode.description ?? "No description."}</p>
+                    </div>
+                  ) : null}
                 </Field>
 
                 <Field label="Store/location">
@@ -501,6 +557,39 @@ export function UserPermissionManager() {
               </form>
             </CardContent>
           </Card>
+
+          <Card className="rounded-md shadow-none">
+            <CardHeader className="border-b border-slate-200">
+              <CardTitle className="text-base">Permission catalog</CardTitle>
+              <p className="mt-2 text-sm text-slate-500">Available active codes from the backend catalog.</p>
+            </CardHeader>
+            <CardContent className="max-h-80 space-y-3 overflow-y-auto">
+              {permissionCodesByGroup.length === 0 ? (
+                <p className="text-sm text-slate-500">No active permission codes loaded.</p>
+              ) : (
+                permissionCodesByGroup.map(([group, codes]) => (
+                  <div key={group} className="space-y-2">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{group}</p>
+                    {codes.map((permission) => (
+                      <button
+                        className={cn(
+                          "block w-full rounded-md border border-slate-200 px-3 py-2 text-left text-sm hover:bg-slate-50",
+                          form.permissionCode === permission.code && "border-primary/40 bg-primary/5",
+                        )}
+                        key={permission.code ?? permission.id}
+                        onClick={() => setForm((current) => ({ ...current, permissionCode: permission.code ?? "" }))}
+                        type="button"
+                      >
+                        <span className="block font-mono font-semibold text-slate-950">{permission.code}</span>
+                        <span className="mt-1 block text-xs font-medium text-slate-600">{permission.name}</span>
+                        <span className="mt-1 block text-xs text-slate-500">{permission.description}</span>
+                      </button>
+                    ))}
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         <Card className="rounded-md shadow-none">
@@ -535,7 +624,12 @@ export function UserPermissionManager() {
                     >
                       <div className="min-w-0">
                         <p className="truncate font-mono text-sm font-semibold text-slate-950">{permission.permissionCode}</p>
-                        <p className="mt-1 truncate font-mono text-xs text-slate-500">{permission.id}</p>
+                        <p className="mt-1 truncate text-xs text-slate-500">
+                          {permissionCodeByCode.get(permission.permissionCode)?.name ?? "Catalog details unavailable"}
+                        </p>
+                        <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+                          {permissionCodeByCode.get(permission.permissionCode)?.description ?? permission.id}
+                        </p>
                       </div>
                       <div className="min-w-0 text-sm text-slate-600">
                         <p className="truncate font-semibold text-slate-950">{location?.name ?? "Global"}</p>
@@ -585,6 +679,25 @@ function normalizeUserPermission(permission: UserPermissionWireDto): UserPermiss
     permissionCode,
     locationId,
     isGranted,
+    createdAt: permission.createdAt ?? null,
+    updatedAt: permission.updatedAt ?? null,
+  };
+}
+
+function normalizePermissionCode(permission: PermissionCodeDto): PermissionCodeDto | null {
+  const code = permission.code?.trim();
+
+  if (!code) {
+    return null;
+  }
+
+  return {
+    id: permission.id ?? null,
+    permissionGroup: permission.permissionGroup ?? permission.permission_group ?? "GENERAL",
+    code,
+    name: permission.name ?? code,
+    description: permission.description ?? null,
+    isActive: permission.isActive ?? permission.is_active ?? true,
     createdAt: permission.createdAt ?? null,
     updatedAt: permission.updatedAt ?? null,
   };

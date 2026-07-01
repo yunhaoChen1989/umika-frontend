@@ -7,6 +7,7 @@ import { MapPin, ShoppingCart, UserRound } from "lucide-react";
 
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
 import { Button } from "@/components/ui/button";
+import { cartChangedEventName, getCartItemCount, getOrCreateGuestSessionId, loadOrCreateCart } from "@/lib/cart-client";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import type { LocationDto } from "@/lib/location-types";
 
@@ -36,6 +37,7 @@ export function SiteHeader({ locale }: { locale: Locale }) {
   const [accountName, setAccountName] = useState<string | null>(null);
   const [location, setLocation] = useState<LocationDto | null>(null);
   const [locations, setLocations] = useState<LocationDto[]>([]);
+  const [cartCount, setCartCount] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -95,6 +97,54 @@ export function SiteHeader({ locale }: { locale: Locale }) {
       window.removeEventListener("storage", refreshAccessFromStorage);
     };
   }, []);
+
+  useEffect(() => {
+    const locationId = location?.id ?? location?.locationId;
+    let active = true;
+
+    async function loadCartCount() {
+      if (!locationId) {
+        setCartCount(0);
+        return;
+      }
+
+      const sessionId = getOrCreateGuestSessionId();
+
+      try {
+        const cart = await loadOrCreateCart(locationId, sessionId, dict.orderPage.cartError);
+
+        if (active) {
+          setCartCount(getCartItemCount(cart));
+        }
+      } catch {
+        if (active) {
+          setCartCount(0);
+        }
+      }
+    }
+
+    function refreshCartCount() {
+      void loadCartCount();
+    }
+
+    function refreshCartCountFromStorage(event: StorageEvent) {
+      if (!event.key || event.key.startsWith("umika_cart_id")) {
+        refreshCartCount();
+      }
+    }
+
+    void loadCartCount();
+    window.addEventListener(cartChangedEventName, refreshCartCount);
+    window.addEventListener("focus", refreshCartCount);
+    window.addEventListener("storage", refreshCartCountFromStorage);
+
+    return () => {
+      active = false;
+      window.removeEventListener(cartChangedEventName, refreshCartCount);
+      window.removeEventListener("focus", refreshCartCount);
+      window.removeEventListener("storage", refreshCartCountFromStorage);
+    };
+  }, [dict.orderPage.cartError, location?.id, location?.locationId]);
 
   useEffect(() => {
     const locationId = searchParams.get("locationId") ?? searchParams.get("location") ?? searchParams.get("storeId") ?? searchParams.get("store");
@@ -233,6 +283,12 @@ export function SiteHeader({ locale }: { locale: Locale }) {
       : location?.locationId
         ? `id:${location.locationId}`
         : "";
+  const locationOptions =
+    locations.length > 0
+      ? locations
+      : location
+        ? [location]
+        : [];
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/92 backdrop-blur">
@@ -264,33 +320,32 @@ export function SiteHeader({ locale }: { locale: Locale }) {
           ) : null}
         </nav>
         <div className="flex shrink-0 items-center gap-2">
-          {locations.length > 0 ? (
-            <label className="hidden items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-950 shadow-sm sm:flex">
-              <MapPin className="h-4 w-4 shrink-0 text-primary" />
-              <select
-                aria-label="Browse location"
-                className="h-8 max-w-36 bg-white text-sm font-bold text-slate-950 outline-none md:max-w-48"
-                value={selectedLocationValue}
-                onChange={(event) => changeLocation(event.target.value)}
-              >
-                {selectedLocationValue ? null : <option value="">Location</option>}
-                {locations.map((option) => {
-                  const id = option.id ?? option.locationId;
-                  const value = option.locationCode ? `code:${option.locationCode}` : id ? `id:${id}` : "";
+          <label className="flex min-w-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-950 shadow-sm">
+            <MapPin className="h-4 w-4 shrink-0 text-primary" />
+            <select
+              aria-label="Browse location"
+              className="h-8 max-w-28 bg-white text-sm font-bold text-slate-950 outline-none sm:max-w-36 md:max-w-48"
+              disabled={locationOptions.length === 0}
+              value={selectedLocationValue}
+              onChange={(event) => changeLocation(event.target.value)}
+            >
+              {selectedLocationValue ? null : <option value="">Location</option>}
+              {locationOptions.map((option) => {
+                const id = option.id ?? option.locationId;
+                const value = option.locationCode ? `code:${option.locationCode}` : id ? `id:${id}` : "";
 
-                  if (!value) {
-                    return null;
-                  }
+                if (!value) {
+                  return null;
+                }
 
-                  return (
-                    <option className="bg-white text-base font-semibold text-slate-950" key={value} value={value}>
-                      {option.name}
-                    </option>
-                  );
-                })}
-              </select>
-            </label>
-          ) : null}
+                return (
+                  <option className="bg-white text-base font-semibold text-slate-950" key={value} value={value}>
+                    {option.name}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
           <LanguageSwitcher locale={locale} label={dict.common.language} />
           <Button asChild variant="outline" size="icon" aria-label="Account">
             <Link href="/account">
@@ -308,8 +363,13 @@ export function SiteHeader({ locale }: { locale: Locale }) {
             </Link>
           ) : null}
           <Button asChild variant="outline" size="icon" aria-label={dict.orderPage.cart}>
-            <Link href="/order">
+            <Link href="/order" className="relative">
               <ShoppingCart className="h-4 w-4" />
+              {cartCount > 0 ? (
+                <span className="absolute -right-2 -top-2 grid min-h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-[11px] font-bold leading-none text-primary-foreground">
+                  {cartCount > 99 ? "99+" : cartCount}
+                </span>
+              ) : null}
             </Link>
           </Button>
         </div>

@@ -1,16 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { FormEvent } from "react";
-import { AlertCircle, CheckCircle2, Pencil, Plus, RefreshCw, Save, Search, ShieldCheck, Trash2, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, RefreshCw, Save, Search, ShieldCheck, Trash2, X } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { LocationDto, SpringPage } from "@/lib/location-types";
-import type { LocationSettingDto } from "@/lib/location-setting-types";
-import type { SystemSettingDto } from "@/lib/system-setting-types";
 import { cn } from "@/lib/utils";
 
 type CurrentAccountProfile = {
@@ -18,151 +15,78 @@ type CurrentAccountProfile = {
   roles?: string[] | null;
 };
 
-type LocationSettingWireDto = Partial<LocationSettingDto> & {
-  location_id?: string | null;
-  setting_group?: string | null;
-  setting_key?: string | null;
-  setting_value?: string | null;
-  description?: string | null;
-};
+type BusinessSettingSource = "SYSTEM" | "LOCATION";
 
-type SystemSettingWireDto = Partial<SystemSettingDto> & {
-  setting_group?: string | null;
-  setting_key?: string | null;
-  setting_value?: string | null;
-  description?: string | null;
-};
-
-type GlobalSettingFormState = {
-  id: string;
+type BusinessSetting = {
   settingGroup: string;
   settingKey: string;
-  settingValue: string;
-  description: string;
+  label?: string | null;
+  description?: string | null;
+  unit?: string | null;
+  systemValue?: string | null;
+  locationValue?: string | null;
+  effectiveValue?: string | null;
+  source: BusinessSettingSource;
 };
 
-type SettingDefinition = {
-  key: string;
-  label: string;
-  description: string;
-  kind: "number" | "text";
-  step?: string;
-  placeholder?: string;
+type BusinessSettingsResponse = {
+  locationId?: string | null;
+  locationCode?: string | null;
+  locationName?: string | null;
+  settings?: BusinessSetting[];
 };
 
-const SETTING_GROUP = "GENERAL";
+type SettingDraft = {
+  value: string;
+  originalValue: string;
+};
+
 const STORE_CHANGE_ROLES = new Set(["ROLE_ADMIN", "ADMIN"]);
+const NUMBER_KEYS = new Set([
+  "DEFAULT_TAX_RATE",
+  "ORDER_DISCOUNT_PERCENT",
+  "ORDER_DISCOUNT_AMOUNT",
+  "POINTS_PER_DOLLAR",
+  "POINT_VALUE_CENTS",
+  "MAX_REDEMPTION_PERCENT",
+  "BIRTHDAY_BONUS_POINTS",
+  "REFERRAL_SIGNUP_POINTS",
+  "REFERRAL_FIRST_ORDER_POINTS",
+  "MIN_REFERRAL_ORDER_AMOUNT",
+]);
 
-const emptyGlobalSettingForm: GlobalSettingFormState = {
-  id: "",
-  settingGroup: SETTING_GROUP,
-  settingKey: "",
-  settingValue: "",
-  description: "",
-};
-
-const SETTING_DEFINITIONS: SettingDefinition[] = [
-  {
-    key: "DEFAULT_TAX_RATE",
-    label: "Tax rate",
-    description: "Ontario HST percentage.",
-    kind: "number",
-    step: "0.01",
-  },
-  {
-    key: "POINTS_PER_DOLLAR",
-    label: "Points per dollar",
-    description: "Points earned per dollar spent.",
-    kind: "number",
-    step: "1",
-  },
-  {
-    key: "POINT_VALUE_CENTS",
-    label: "Point value",
-    description: "Each point equals this many cents when redeemed.",
-    kind: "number",
-    step: "1",
-  },
-  {
-    key: "BIRTHDAY_BONUS_POINTS",
-    label: "Birthday bonus points",
-    description: "Birthday reward points.",
-    kind: "number",
-    step: "1",
-  },
-  {
-    key: "REFERRAL_SIGNUP_POINTS",
-    label: "Referral signup points",
-    description: "Points awarded when a referred user registers.",
-    kind: "number",
-    step: "1",
-  },
-  {
-    key: "REFERRAL_FIRST_ORDER_POINTS",
-    label: "Referral first order points",
-    description: "Points awarded when a referred user places the first qualifying order.",
-    kind: "number",
-    step: "1",
-  },
-  {
-    key: "MIN_REFERRAL_ORDER_AMOUNT",
-    label: "Minimum referral order amount",
-    description: "Minimum order amount to trigger referral reward.",
-    kind: "number",
-    step: "0.01",
-  },
-  {
-    key: "MAX_REDEMPTION_PERCENT",
-    label: "Maximum redemption percent",
-    description: "Maximum percentage of an order that can be paid with points.",
-    kind: "number",
-    step: "1",
-  },
-  {
-    key: "DEFAULT_CURRENCY",
-    label: "Default currency",
-    description: "System currency code.",
-    kind: "text",
-    placeholder: "CAD",
-  },
-];
-
-type SettingRow = {
-  definition: SettingDefinition;
-  globalSetting: SystemSettingDto | null;
-  overrideSetting: LocationSettingDto | null;
-  draftValue: string;
-  effectiveValue: string;
-  hasChanges: boolean;
-  inherited: boolean;
+const FALLBACK_LABELS: Record<string, string> = {
+  DEFAULT_TAX_RATE: "Tax rate",
+  ORDER_DISCOUNT_PERCENT: "Order discount percent",
+  ORDER_DISCOUNT_AMOUNT: "Order discount amount",
+  POINTS_PER_DOLLAR: "Points per dollar",
+  POINT_VALUE_CENTS: "Point value",
+  MAX_REDEMPTION_PERCENT: "Maximum redemption percent",
+  BIRTHDAY_BONUS_POINTS: "Birthday bonus points",
+  REFERRAL_SIGNUP_POINTS: "Referral signup points",
+  REFERRAL_FIRST_ORDER_POINTS: "Referral first order points",
+  MIN_REFERRAL_ORDER_AMOUNT: "Minimum referral order amount",
 };
 
 export function LocationSettingManager() {
   const [locations, setLocations] = useState<LocationDto[]>([]);
-  const [systemSettings, setSystemSettings] = useState<SystemSettingDto[]>([]);
-  const [locationSettings, setLocationSettings] = useState<LocationSettingDto[]>([]);
-  const [globalForm, setGlobalForm] = useState<GlobalSettingFormState>(emptyGlobalSettingForm);
-  const [isGlobalFormVisible, setIsGlobalFormVisible] = useState(false);
   const [selectedLocationId, setSelectedLocationId] = useState("");
   const [locationQuery, setLocationQuery] = useState("");
   const [locationSelectionSource, setLocationSelectionSource] = useState<"stored" | "manual" | null>(null);
-  const [draftValues, setDraftValues] = useState<Record<string, string>>({});
+  const [effectiveSettings, setEffectiveSettings] = useState<BusinessSettingsResponse | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, SettingDraft>>({});
   const [status, setStatus] = useState<"loading" | "ready" | "unauthenticated" | "error">("loading");
-  const [overrideStatus, setOverrideStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [settingsStatus, setSettingsStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [canChangeStore, setCanChangeStore] = useState(false);
-  const [globalSavingId, setGlobalSavingId] = useState<string | null>(null);
-  const [globalDeletingId, setGlobalDeletingId] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
-  const [deletingKey, setDeletingKey] = useState<string | null>(null);
+  const [resettingKey, setResettingKey] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const locationById = useMemo(() => new Map(locations.map((location) => [location.id, location])), [locations]);
-  const globalSettingsByKey = useMemo(() => new Map(systemSettings.map((setting) => [setting.settingKey, setting])), [systemSettings]);
-  const locationSettingsByKey = useMemo(() => new Map(locationSettings.map((setting) => [setting.settingKey, setting])), [locationSettings]);
   const selectedLocation = selectedLocationId ? locationById.get(selectedLocationId) ?? null : null;
   const locationLocked = Boolean(selectedLocationId) && !canChangeStore;
-  const canEditGlobalSettings = canChangeStore;
+  const isGlobalMode = !selectedLocationId;
 
   const filteredLocations = useMemo(() => {
     const query = locationQuery.trim().toLowerCase();
@@ -180,119 +104,98 @@ export function LocationSettingManager() {
       .slice(0, 12);
   }, [locationQuery, locations]);
 
-  const settingRows = useMemo<SettingRow[]>(
-    () =>
-      SETTING_DEFINITIONS.map((definition) => {
-        const globalSetting = globalSettingsByKey.get(definition.key) ?? null;
-        const overrideSetting = locationSettingsByKey.get(definition.key) ?? null;
-        const draftValue = draftValues[definition.key] ?? overrideSetting?.settingValue ?? globalSetting?.settingValue ?? "";
-        const effectiveValue = overrideSetting?.settingValue ?? globalSetting?.settingValue ?? "";
+  const groupedSettings = useMemo(() => {
+    const groups = new Map<string, BusinessSetting[]>();
 
-        return {
-          definition,
-          globalSetting,
-          overrideSetting,
-          draftValue,
-          effectiveValue,
-          hasChanges: draftValue.trim() !== (overrideSetting?.settingValue ?? globalSetting?.settingValue ?? "").trim(),
-          inherited: !overrideSetting || overrideSetting.settingValue === null || overrideSetting.settingValue === "",
-        };
-      }),
-    [draftValues, globalSettingsByKey, locationSettingsByKey],
-  );
-  const isOverridesLoading = overrideStatus === "loading";
+    for (const setting of effectiveSettings?.settings ?? []) {
+      const group = setting.settingGroup || "GENERAL";
+      groups.set(group, [...(groups.get(group) ?? []), setting]);
+    }
 
-  const loadCatalog = useCallback(async () => {
+    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [effectiveSettings]);
+
+  const loadShell = useCallback(async () => {
     setStatus("loading");
     setError(null);
 
-    const profileResponse = await fetch("/api/me/profile", {
+    const headers = getAuthHeaders();
+    const [profileResponse, locationsResponse] = await Promise.all([
+      fetch("/api/me/profile", { method: "GET", headers, cache: "no-store" }).catch(() => null),
+      fetch("/api/manager/locations?page=0&size=300&sort=name,asc", { headers, cache: "no-store" }).catch(() => null),
+    ]);
+
+    if (!profileResponse?.ok) {
+      const body = profileResponse ? await profileResponse.json().catch(() => null) : null;
+      setStatus(profileResponse?.status === 401 || profileResponse?.status === 403 ? "unauthenticated" : "error");
+      setError(getManagerErrorMessage(profileResponse?.status, body, "Unable to load account profile."));
+      return;
+    }
+
+    const profile = (await profileResponse.json().catch(() => null)) as CurrentAccountProfile | null;
+    const roles = [...(profile?.roles ?? []), profile?.role]
+      .filter((role): role is string => Boolean(role))
+      .map((role) => role.toUpperCase());
+    setCanChangeStore(roles.some((role) => STORE_CHANGE_ROLES.has(role)));
+
+    if (!locationsResponse?.ok) {
+      const body = locationsResponse ? await locationsResponse.json().catch(() => null) : null;
+      setStatus(locationsResponse?.status === 401 || locationsResponse?.status === 403 ? "unauthenticated" : "error");
+      setError(getManagerErrorMessage(locationsResponse?.status, body, "Unable to load store locations."));
+      return;
+    }
+
+    const locationsPage = (await locationsResponse.json()) as SpringPage<LocationDto>;
+    setLocations(locationsPage.content ?? []);
+    setStatus("ready");
+  }, []);
+
+  const loadEffectiveSettings = useCallback(async (locationId: string) => {
+    setSettingsStatus("loading");
+    setError(null);
+
+    const url = new URL("/api/manager/business-settings/effective", window.location.origin);
+
+    if (locationId) {
+      url.searchParams.set("locationId", locationId);
+    }
+
+    const response = await fetch(url.toString(), {
       method: "GET",
       headers: getAuthHeaders(),
       cache: "no-store",
     }).catch(() => null);
 
-    if (profileResponse?.ok) {
-      const profile = (await profileResponse.json().catch(() => null)) as CurrentAccountProfile | null;
-      const roles = [...(profile?.roles ?? []), profile?.role]
-        .filter((role): role is string => Boolean(role))
-        .map((role) => role.toUpperCase());
-      setCanChangeStore(roles.some((role) => STORE_CHANGE_ROLES.has(role)));
-    } else {
-      setCanChangeStore(false);
-    }
-
-    const headers = getAuthHeaders();
-    const [locationsResponse, systemSettingsResponse] = await Promise.all([
-      fetch("/api/manager/locations?page=0&size=300&sort=name,asc", { headers, cache: "no-store" }).catch(() => null),
-      fetch("/api/manager/system-settings?page=0&size=200&sort=settingKey,asc", { headers, cache: "no-store" }).catch(() => null),
-    ]);
-    const failed = [locationsResponse, systemSettingsResponse].find((response) => !response?.ok);
-
-    if (failed) {
-      const body = await failed?.json().catch(() => null);
-      setStatus(failed?.status === 401 ? "unauthenticated" : "error");
-      setError(getManagerErrorMessage(failed?.status, body, "Unable to load system settings."));
+    if (!response?.ok) {
+      const body = response ? await response.json().catch(() => null) : null;
+      setEffectiveSettings(null);
+      setDrafts({});
+      setSettingsStatus("error");
+      setError(getManagerErrorMessage(response?.status, body, "Unable to load business settings."));
       return;
     }
 
-    const locationsPage = (await locationsResponse!.json()) as SpringPage<LocationDto>;
-    const systemSettingsPage = (await systemSettingsResponse!.json()) as SpringPage<SystemSettingWireDto>;
+    const body = (await response.json()) as BusinessSettingsResponse;
+    const settings = body.settings ?? [];
 
-    setLocations(locationsPage.content ?? []);
-    setSystemSettings(
-      (systemSettingsPage.content ?? [])
-        .map(normalizeSystemSetting)
-        .filter((item): item is SystemSettingDto => Boolean(item)),
+    setEffectiveSettings({ ...body, settings });
+    setDrafts(
+      Object.fromEntries(
+        settings.map((setting) => {
+          const value = setting.effectiveValue ?? "";
+          return [setting.settingKey, { value, originalValue: value }];
+        }),
+      ),
     );
-    setStatus("ready");
+    setSettingsStatus("ready");
   }, []);
 
-  const loadOverrides = useCallback(
-    async (locationId: string) => {
-      if (!locationId) {
-        setLocationSettings([]);
-        setDraftValues({});
-        setOverrideStatus("idle");
-        return;
-      }
-
-      setOverrideStatus("loading");
-      setError(null);
-
-      const headers = getAuthHeaders();
-      const url = new URL("/api/manager/location-settings", window.location.origin);
-      url.searchParams.set("page", "0");
-      url.searchParams.set("size", "200");
-      url.searchParams.set("sort", "settingKey,asc");
-      url.searchParams.set("locationId", locationId);
-      url.searchParams.set("settingGroup", SETTING_GROUP);
-
-      const response = await fetch(url.toString(), { headers, cache: "no-store" }).catch(() => null);
-
-      if (!response?.ok) {
-        const body = response ? await response.json().catch(() => null) : null;
-        setOverrideStatus(response?.status === 401 ? "error" : "error");
-        setError(getManagerErrorMessage(response?.status, body, "Unable to load store overrides."));
-        return;
-      }
-
-      const page = (await response.json()) as SpringPage<LocationSettingWireDto>;
-      const overrides = (page.content ?? []).map(normalizeLocationSetting).filter((item): item is LocationSettingDto => Boolean(item));
-
-      setLocationSettings(overrides);
-      setDraftValues(buildDraftValues(overrides, systemSettings));
-      setOverrideStatus("ready");
-    },
-    [systemSettings],
-  );
+  useEffect(() => {
+    void loadShell();
+  }, [loadShell]);
 
   useEffect(() => {
-    void loadCatalog();
-  }, [loadCatalog]);
-
-  useEffect(() => {
-    if (locationSelectionSource !== null || selectedLocationId || locations.length === 0) {
+    if (locationSelectionSource !== null || selectedLocationId || locations.length === 0 || canChangeStore) {
       return;
     }
 
@@ -313,15 +216,15 @@ export function LocationSettingManager() {
     setSelectedLocationId(matchedLocation.id);
     setLocationQuery(matchedLocation.name);
     setLocationSelectionSource("stored");
-  }, [locationSelectionSource, locations, selectedLocationId]);
+  }, [canChangeStore, locationSelectionSource, locations, selectedLocationId]);
 
   useEffect(() => {
-    if (!selectedLocationId || status !== "ready") {
+    if (status !== "ready") {
       return;
     }
 
-    void loadOverrides(selectedLocationId);
-  }, [loadOverrides, selectedLocationId, status]);
+    void loadEffectiveSettings(selectedLocationId);
+  }, [loadEffectiveSettings, selectedLocationId, status]);
 
   function selectLocation(location: LocationDto) {
     if (locationLocked) {
@@ -342,211 +245,91 @@ export function LocationSettingManager() {
 
     setSelectedLocationId("");
     setLocationQuery("");
-    setLocationSelectionSource(null);
-    setLocationSettings([]);
-    setDraftValues({});
+    setLocationSelectionSource("manual");
     setMessage(null);
     setError(null);
   }
 
-  function startCreateGlobalSetting() {
-    setGlobalForm(emptyGlobalSettingForm);
-    setIsGlobalFormVisible(true);
-    setMessage(null);
-    setError(null);
-  }
-
-  function closeGlobalForm() {
-    setGlobalForm(emptyGlobalSettingForm);
-    setIsGlobalFormVisible(false);
-    setMessage(null);
-    setError(null);
-  }
-
-  function editGlobalSetting(setting: SystemSettingDto) {
-    setGlobalForm({
-      id: setting.id ?? "",
-      settingGroup: setting.settingGroup ?? SETTING_GROUP,
-      settingKey: setting.settingKey ?? "",
-      settingValue: setting.settingValue ?? "",
-      description: setting.description ?? "",
-    });
-    setIsGlobalFormVisible(true);
-    setMessage(null);
-    setError(null);
-  }
-
-  function updateGlobalField<K extends keyof GlobalSettingFormState>(key: K, value: GlobalSettingFormState[K]) {
-    setGlobalForm((current) => ({ ...current, [key]: value }));
-  }
-
-  async function saveGlobalSetting(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!canEditGlobalSettings) {
-      setError("Only role_admin users can manage global settings.");
-      return;
-    }
-
-    if (!globalForm.settingKey.trim()) {
-      setError("Setting key is required.");
-      return;
-    }
-
-    setGlobalSavingId(globalForm.id || globalForm.settingKey);
-    setMessage(null);
-    setError(null);
-
-    const payload: SystemSettingDto = {
-      id: globalForm.id || null,
-      settingGroup: globalForm.settingGroup.trim() || SETTING_GROUP,
-      settingKey: globalForm.settingKey.trim(),
-      settingValue: globalForm.settingValue.trim() || null,
-      description: globalForm.description.trim() || null,
-    };
-
-    const response = await fetch(globalForm.id ? `/api/manager/system-settings/${globalForm.id}` : "/api/manager/system-settings", {
-      method: globalForm.id ? "PUT" : "POST",
-      headers: {
-        ...getAuthHeaders(),
-        "Content-Type": "application/json",
+  function updateDraft(settingKey: string, value: string) {
+    setDrafts((current) => ({
+      ...current,
+      [settingKey]: {
+        originalValue: current[settingKey]?.originalValue ?? "",
+        value,
       },
-      body: JSON.stringify(payload),
-    }).catch(() => null);
-
-    setGlobalSavingId(null);
-
-    if (!response?.ok) {
-      const body = response ? await response.json().catch(() => null) : null;
-      setError(getManagerErrorMessage(response?.status, body, "Unable to save global setting."));
-      return;
-    }
-
-    setMessage(globalForm.id ? "Global setting updated." : "Global setting created.");
-    closeGlobalForm();
-    await loadCatalog();
+    }));
   }
 
-  async function deleteGlobalSetting(setting: SystemSettingDto) {
-    if (!canEditGlobalSettings) {
-      setError("Only role_admin users can manage global settings.");
-      return;
-    }
+  async function saveSetting(setting: BusinessSetting) {
+    const draft = drafts[setting.settingKey];
+    const settingValue = (draft?.value ?? "").trim();
 
-    if (!setting.id || !window.confirm(`Delete global setting ${setting.settingKey}?`)) {
-      return;
-    }
-
-    setGlobalDeletingId(setting.id);
+    setSavingKey(setting.settingKey);
     setMessage(null);
     setError(null);
 
-    const response = await fetch(`/api/manager/system-settings/${setting.id}`, {
-      method: "DELETE",
-      headers: getAuthHeaders(),
-    }).catch(() => null);
-
-    setGlobalDeletingId(null);
-
-    if (!response?.ok) {
-      const body = response ? await response.json().catch(() => null) : null;
-      setError(getManagerErrorMessage(response?.status, body, "Unable to delete global setting."));
-      return;
-    }
-
-    setMessage("Global setting deleted.");
-    await loadCatalog();
-  }
-
-  function updateDraft(key: string, value: string) {
-    setDraftValues((current) => ({ ...current, [key]: value }));
-  }
-
-  async function saveOverride(definition: SettingDefinition) {
-    if (!selectedLocationId) {
-      setError("Select a store first.");
-      return;
-    }
-
-    const draftValue = (draftValues[definition.key] ?? "").trim();
-    const globalValue = (globalSettingsByKey.get(definition.key)?.settingValue ?? "").trim();
-    const existing = locationSettingsByKey.get(definition.key) ?? null;
-
-    if (!draftValue || draftValue === globalValue) {
-      if (existing?.id) {
-        await deleteOverride(definition, false);
-      } else {
-        setMessage(`${definition.label} already matches the global value.`);
-      }
-      return;
-    }
-
-    setSavingKey(definition.key);
-    setMessage(null);
-    setError(null);
-
-    const payload: LocationSettingDto = {
-      id: existing?.id ?? null,
-      locationId: selectedLocationId,
-      settingGroup: SETTING_GROUP,
-      settingKey: definition.key,
-      settingValue: draftValue,
-      description: definition.description,
-    };
-
-    const response = await fetch(existing?.id ? `/api/manager/location-settings/${existing.id}` : "/api/manager/location-settings", {
-      method: existing?.id ? "PUT" : "POST",
-      headers: {
-        ...getAuthHeaders(),
-        "Content-Type": "application/json",
+    const response = await fetch(
+      isGlobalMode
+        ? "/api/manager/business-settings/system"
+        : `/api/manager/business-settings/location/${encodeURIComponent(selectedLocationId)}`,
+      {
+        method: "PUT",
+        headers: {
+          ...getAuthHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          settings: [
+            {
+              settingKey: setting.settingKey,
+              settingValue,
+            },
+          ],
+        }),
+        cache: "no-store",
       },
-      body: JSON.stringify(payload),
-    }).catch(() => null);
+    ).catch(() => null);
 
     setSavingKey(null);
 
     if (!response?.ok) {
       const body = response ? await response.json().catch(() => null) : null;
-      setError(getManagerErrorMessage(response?.status, body, "Unable to save the override."));
+      setError(getManagerErrorMessage(response?.status, body, "Unable to save business setting."));
       return;
     }
 
-    setMessage(`${definition.label} override saved.`);
-    await loadOverrides(selectedLocationId);
+    setMessage(`${getSettingLabel(setting)} saved.`);
+    await loadEffectiveSettings(selectedLocationId);
   }
 
-  async function deleteOverride(definition: SettingDefinition, showMessage = true) {
-    const existing = locationSettingsByKey.get(definition.key);
-
-    if (!existing?.id) {
-      updateDraft(definition.key, "");
+  async function resetSetting(setting: BusinessSetting) {
+    if (isGlobalMode) {
       return;
     }
 
-    setDeletingKey(definition.key);
+    setResettingKey(setting.settingKey);
     setMessage(null);
     setError(null);
 
-    const response = await fetch(`/api/manager/location-settings/${existing.id}`, {
-      method: "DELETE",
-      headers: getAuthHeaders(),
-    }).catch(() => null);
+    const response = await fetch(
+      `/api/manager/business-settings/location/${encodeURIComponent(selectedLocationId)}/${encodeURIComponent(setting.settingKey)}`,
+      {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+        cache: "no-store",
+      },
+    ).catch(() => null);
 
-    setDeletingKey(null);
+    setResettingKey(null);
 
     if (!response?.ok) {
       const body = response ? await response.json().catch(() => null) : null;
-      setError(getManagerErrorMessage(response?.status, body, "Unable to delete the override."));
+      setError(getManagerErrorMessage(response?.status, body, "Unable to reset business setting."));
       return;
     }
 
-    updateDraft(definition.key, globalSettingsByKey.get(definition.key)?.settingValue ?? "");
-
-    if (showMessage) {
-      setMessage(`${definition.label} reset to the global value.`);
-    }
-
-    await loadOverrides(selectedLocationId);
+    setMessage(`${getSettingLabel(setting)} reset to the system value.`);
+    await loadEffectiveSettings(selectedLocationId);
   }
 
   if (status === "unauthenticated") {
@@ -565,14 +348,22 @@ export function LocationSettingManager() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap justify-end gap-2">
-        <Button disabled={status === "loading"} onClick={() => void loadCatalog()} type="button" variant="outline">
+        <Button
+          disabled={status === "loading" || settingsStatus === "loading"}
+          onClick={() => {
+            void loadShell();
+            void loadEffectiveSettings(selectedLocationId);
+          }}
+          type="button"
+          variant="outline"
+        >
           <RefreshCw className="h-4 w-4" />
           Refresh
         </Button>
         {selectedLocationId ? (
           <Button disabled={locationLocked} onClick={clearSelection} type="button" variant="outline">
             <X className="h-4 w-4" />
-            Change store
+            {canChangeStore ? "Global settings" : "Store locked"}
           </Button>
         ) : null}
       </div>
@@ -598,8 +389,8 @@ export function LocationSettingManager() {
                 <CardTitle className="text-base">Store / location</CardTitle>
                 <p className="mt-2 text-sm text-slate-500">
                   {selectedLocation
-                    ? `Managing overrides for ${selectedLocation.name}.`
-                    : "Select a store to view and override its inherited settings."}
+                    ? `Editing effective business settings for ${selectedLocation.name}.`
+                    : "Global system settings are shown when no store is selected."}
                 </p>
               </div>
               {locationLocked ? <ShieldCheck className="h-4 w-4 text-slate-400" /> : null}
@@ -623,15 +414,19 @@ export function LocationSettingManager() {
               />
             </div>
 
-            {selectedLocation ? (
-              <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
-                <p className="font-semibold text-slate-950">{selectedLocation.name}</p>
-                <p className="mt-1 truncate text-xs text-slate-500">{selectedLocation.locationCode ?? selectedLocation.id}</p>
-                <p className="mt-2 text-xs text-slate-500">
-                  {locationLocked ? "This store is locked from the URL context." : "This store can be changed before editing overrides."}
-                </p>
-              </div>
-            ) : null}
+            <div className={cn("rounded-md border px-3 py-2 text-sm", selectedLocation ? "border-primary/30 bg-primary/5" : "border-slate-200 bg-slate-50")}>
+              <p className="font-semibold text-slate-950">{selectedLocation?.name ?? effectiveSettings?.locationName ?? "Global"}</p>
+              <p className="mt-1 truncate text-xs text-slate-500">
+                {selectedLocation?.locationCode ?? selectedLocation?.id ?? "System defaults"}
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                {selectedLocation
+                  ? locationLocked
+                    ? "This store comes from the current user/location context."
+                    : "Admin can switch stores or return to global settings."
+                  : "No store selected. Saving updates the global/default system value."}
+              </p>
+            </div>
 
             <div className="max-h-72 space-y-1 overflow-y-auto">
               {filteredLocations.map((location) => {
@@ -659,275 +454,138 @@ export function LocationSettingManager() {
             </div>
 
             <p className="text-xs text-slate-500">
-              {canChangeStore ? "Role admin can switch stores freely." : "Non-admin users can edit overrides on the current store, but changing the store is restricted once set."}
+              {canChangeStore
+                ? "Role admin can switch stores or edit global defaults."
+                : "Non-admin users edit settings only for their assigned/current store."}
             </p>
           </CardContent>
         </Card>
 
-        <div className="space-y-6">
-          <Card className="overflow-hidden rounded-md shadow-none">
-            <CardHeader className="border-b border-slate-200">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <CardTitle className="text-base">Global settings</CardTitle>
-                  <p className="mt-2 text-sm text-slate-500">Values from `system_settings` that location overrides inherit from.</p>
-                </div>
-                {canEditGlobalSettings ? (
-                  <Button onClick={startCreateGlobalSetting} type="button">
-                    <Plus className="h-4 w-4" />
-                    Add setting
-                  </Button>
-                ) : null}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4 p-0">
-              {isGlobalFormVisible ? (
-                <form className="space-y-4 border-b border-slate-200 p-5" onSubmit={(event) => void saveGlobalSetting(event)}>
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <SettingField label="Setting group">
-                      <input
-                        className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                        onChange={(event) => updateGlobalField("settingGroup", event.target.value)}
-                        value={globalForm.settingGroup}
-                      />
-                    </SettingField>
-                    <SettingField label="Setting key" required>
-                      <input
-                        className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                        onChange={(event) => updateGlobalField("settingKey", event.target.value)}
-                        value={globalForm.settingKey}
-                      />
-                    </SettingField>
-                    <SettingField label="Setting value">
-                      <input
-                        className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                        onChange={(event) => updateGlobalField("settingValue", event.target.value)}
-                        value={globalForm.settingValue}
-                      />
-                    </SettingField>
-                    <SettingField label="Description">
-                      <input
-                        className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                        onChange={(event) => updateGlobalField("description", event.target.value)}
-                        value={globalForm.description}
-                      />
-                    </SettingField>
+        <Card className="overflow-hidden rounded-md shadow-none">
+          <CardHeader className="border-b border-slate-200">
+            <CardTitle className="text-base">Business settings</CardTitle>
+            <p className="mt-2 text-sm text-slate-500">
+              {isGlobalMode
+                ? "Backend returns global system settings when no store is selected."
+                : "Backend returns system values merged with this store's overrides."}
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-5 p-5">
+            {settingsStatus === "loading" || status === "loading" ? (
+              <div className="rounded-md border border-slate-200 p-5 text-sm text-slate-500">Loading business settings...</div>
+            ) : groupedSettings.length === 0 ? (
+              <div className="rounded-md border border-slate-200 p-5 text-sm text-slate-500">No business settings returned.</div>
+            ) : (
+              groupedSettings.map(([group, settings]) => (
+                <section className="overflow-hidden rounded-md border border-slate-200" key={group}>
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-100 px-4 py-3">
+                    <h3 className="text-sm font-bold uppercase tracking-wide text-slate-700">{group}</h3>
+                    <Badge className="border-slate-200 bg-white text-slate-700">{settings.length} settings</Badge>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button disabled={Boolean(globalSavingId)} type="submit">
-                      <Save className="h-4 w-4" />
-                      {globalSavingId ? "Saving..." : globalForm.id ? "Update setting" : "Create setting"}
-                    </Button>
-                    <Button onClick={closeGlobalForm} type="button" variant="outline">
-                      <X className="h-4 w-4" />
-                      Cancel
-                    </Button>
-                  </div>
-                </form>
-              ) : null}
-              {status === "loading" ? (
-                <div className="p-5 text-sm text-slate-500">Loading global settings...</div>
-              ) : systemSettings.length === 0 ? (
-                <div className="p-5 text-sm text-slate-500">No settings configured.</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <div className="grid min-w-[980px] grid-cols-[180px_160px_1fr_180px] border-b border-slate-200 bg-slate-100 px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">
-                    <span>Group / Key</span>
-                    <span>Value</span>
-                    <span>Description</span>
-                    <span>Actions</span>
-                  </div>
-                  {systemSettings.map((setting) => (
-                    <div
-                      className="grid min-w-[980px] grid-cols-[180px_160px_1fr_180px] items-start border-b border-slate-200 px-5 py-4 last:border-b-0"
-                      key={setting.id ?? setting.settingKey}
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate font-mono text-sm font-semibold text-slate-950">{setting.settingKey}</p>
-                        <p className="mt-1 text-xs text-slate-500">{setting.settingGroup ?? SETTING_GROUP}</p>
-                      </div>
-                      <div className="pt-1">
-                        <Badge className="rounded-md bg-slate-100 text-slate-700">{formatSettingValue(setting.settingValue)}</Badge>
-                      </div>
-                      <div className="text-sm text-slate-600">
-                        <p className="break-words">{setting.description ?? "No description"}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {canEditGlobalSettings ? (
-                          <>
-                            <Button
-                              disabled={globalSavingId === setting.id}
-                              onClick={() => editGlobalSetting(setting)}
-                              size="icon"
-                              type="button"
-                              variant="outline"
-                              aria-label={`Edit global setting ${setting.settingKey}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              disabled={globalDeletingId === setting.id}
-                              onClick={() => void deleteGlobalSetting(setting)}
-                              size="icon"
-                              type="button"
-                              variant="outline"
-                              aria-label={`Delete global setting ${setting.settingKey}`}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </>
-                        ) : (
-                          <span className="text-sm text-slate-500">Read only</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                  <div className="divide-y divide-slate-200">
+                    {settings.map((setting) => {
+                      const draft = drafts[setting.settingKey];
+                      const value = draft?.value ?? setting.effectiveValue ?? "";
+                      const hasChanges = value.trim() !== (draft?.originalValue ?? setting.effectiveValue ?? "").trim();
 
-          <Card className="overflow-hidden rounded-md shadow-none">
-            <CardHeader className="border-b border-slate-200">
-              <CardTitle className="text-base">Store overrides</CardTitle>
-              <p className="mt-2 text-sm text-slate-500">
-                {selectedLocation
-                  ? "Edit only the fields you want to override. Clearing a value resets it back to the global default."
-                  : "Pick a store to edit its overrides."}
-              </p>
-            </CardHeader>
-            <CardContent className="p-0">
-              {!selectedLocation ? (
-                <div className="p-5 text-sm text-slate-500">No store selected.</div>
-              ) : isOverridesLoading ? (
-                <div className="p-5 text-sm text-slate-500">Loading store overrides...</div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <div className="grid min-w-[1280px] grid-cols-[220px_1fr_220px_220px_150px_170px] border-b border-slate-200 bg-slate-100 px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">
-                    <span>Setting</span>
-                    <span>Description</span>
-                    <span>Global</span>
-                    <span>Store override</span>
-                    <span>Effective</span>
-                    <span>Actions</span>
+                      return (
+                        <div className="grid gap-4 px-4 py-4 xl:grid-cols-[260px_1fr_220px_190px]" key={setting.settingKey}>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-slate-950">{getSettingLabel(setting)}</p>
+                            <p className="mt-1 truncate font-mono text-xs text-slate-500">{setting.settingKey}</p>
+                            <div className="mt-2">
+                              <Badge className={cn("rounded-md", setting.source === "LOCATION" ? "bg-amber-50 text-amber-800" : "bg-emerald-50 text-emerald-800")}>
+                                {setting.source}
+                              </Badge>
+                            </div>
+                          </div>
+                          <div className="text-sm text-slate-600">
+                            <p>{setting.description || "No description provided."}</p>
+                            {setting.unit ? <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-500">Unit: {setting.unit}</p> : null}
+                            <p className="mt-2 text-xs text-slate-500">
+                              System: {formatSettingValue(setting.systemValue)}
+                              {selectedLocationId ? ` / Location: ${formatSettingValue(setting.locationValue)}` : null}
+                            </p>
+                          </div>
+                          <div>
+                            <SettingInput
+                              disabled={savingKey === setting.settingKey || resettingKey === setting.settingKey}
+                              onChange={(nextValue) => updateDraft(setting.settingKey, nextValue)}
+                              setting={setting}
+                              value={value}
+                            />
+                            <p className="mt-1 text-xs text-slate-500">Effective value from backend: {formatSettingValue(setting.effectiveValue)}</p>
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            <Button
+                              disabled={!hasChanges || savingKey === setting.settingKey || resettingKey === setting.settingKey}
+                              onClick={() => void saveSetting(setting)}
+                              size="sm"
+                              type="button"
+                            >
+                              <Save className="h-4 w-4" />
+                              {savingKey === setting.settingKey ? "Saving..." : "Save"}
+                            </Button>
+                            {selectedLocationId ? (
+                              <Button
+                                disabled={setting.source !== "LOCATION" || resettingKey === setting.settingKey || savingKey === setting.settingKey}
+                                onClick={() => void resetSetting(setting)}
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                {resettingKey === setting.settingKey ? "Resetting..." : "Reset to system"}
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                  {settingRows.map((row) => (
-                    <div
-                      className="grid min-w-[1280px] grid-cols-[220px_1fr_220px_220px_150px_170px] items-start gap-3 border-b border-slate-200 px-5 py-4 last:border-b-0"
-                      key={row.definition.key}
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate font-mono text-sm font-semibold text-slate-950">{row.definition.key}</p>
-                        <p className="mt-1 text-xs text-slate-500">{row.definition.label}</p>
-                      </div>
-                      <p className="text-sm text-slate-600">{row.definition.description}</p>
-                      <div className="pt-1">
-                        <Badge className="rounded-md bg-slate-100 text-slate-700">{formatSettingValue(row.globalSetting?.settingValue)}</Badge>
-                      </div>
-                      <div>
-                        <SettingInput
-                          definition={row.definition}
-                          disabled={isOverridesLoading}
-                          onChange={(value) => updateDraft(row.definition.key, value)}
-                          placeholder={row.definition.placeholder ?? row.globalSetting?.settingValue ?? ""}
-                          value={row.draftValue}
-                        />
-                        <p className="mt-1 text-xs text-slate-500">
-                          {row.overrideSetting ? `Saved override: ${formatSettingValue(row.overrideSetting.settingValue)}` : "No saved override yet."}
-                        </p>
-                      </div>
-                      <div className="pt-1">
-                        <Badge className={cn("rounded-md", row.inherited ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800")}>
-                          {row.inherited ? "Inherited" : "Override"}
-                        </Badge>
-                        <p className="mt-2 text-sm font-semibold text-slate-900">{row.draftValue.trim() || row.globalSetting?.settingValue || "Not set"}</p>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Button
-                          disabled={isOverridesLoading || savingKey === row.definition.key}
-                          onClick={() => void saveOverride(row.definition)}
-                          size="sm"
-                          type="button"
-                        >
-                          <Save className="h-4 w-4" />
-                          {savingKey === row.definition.key ? "Saving..." : "Save"}
-                        </Button>
-                        <Button
-                          disabled={isOverridesLoading || deletingKey === row.definition.key || !row.overrideSetting?.id}
-                          onClick={() => void deleteOverride(row.definition)}
-                          size="sm"
-                          type="button"
-                          variant="outline"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          {deletingKey === row.definition.key ? "Resetting..." : "Reset"}
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+                </section>
+              ))
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
 }
 
-function buildDraftValues(overrides: LocationSettingDto[], systemSettings: SystemSettingDto[]) {
-  const drafts: Record<string, string> = {};
-  const overrideByKey = new Map(overrides.map((setting) => [setting.settingKey, setting.settingValue ?? ""]));
-  const systemByKey = new Map(systemSettings.map((setting) => [setting.settingKey, setting.settingValue ?? ""]));
+function SettingInput({
+  disabled,
+  onChange,
+  setting,
+  value,
+}: {
+  disabled?: boolean;
+  onChange: (value: string) => void;
+  setting: BusinessSetting;
+  value: string;
+}) {
+  const isNumber = NUMBER_KEYS.has(setting.settingKey);
 
-  for (const definition of SETTING_DEFINITIONS) {
-    drafts[definition.key] = overrideByKey.get(definition.key) ?? systemByKey.get(definition.key) ?? "";
-  }
-
-  return drafts;
+  return (
+    <input
+      className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:bg-slate-100"
+      disabled={disabled}
+      inputMode={isNumber ? "decimal" : "text"}
+      onChange={(event) => onChange(event.target.value)}
+      step={isNumber ? "0.01" : undefined}
+      type={isNumber ? "number" : "text"}
+      value={value}
+    />
+  );
 }
 
-function normalizeLocationSetting(setting: LocationSettingWireDto): LocationSettingDto | null {
-  const locationId = setting.locationId ?? setting.location_id;
-  const settingKey = setting.settingKey ?? setting.setting_key;
-
-  if (!locationId || !settingKey) {
-    return null;
-  }
-
-  return {
-    id: setting.id ?? null,
-    locationId,
-    settingGroup: setting.settingGroup ?? setting.setting_group ?? SETTING_GROUP,
-    settingKey,
-    settingValue: setting.settingValue ?? setting.setting_value ?? null,
-    description: setting.description ?? null,
-    createdAt: setting.createdAt ?? null,
-    updatedAt: setting.updatedAt ?? null,
-  };
-}
-
-function normalizeSystemSetting(setting: SystemSettingWireDto): SystemSettingDto | null {
-  const settingKey = setting.settingKey ?? setting.setting_key;
-
-  if (!settingKey) {
-    return null;
-  }
-
-  return {
-    id: setting.id ?? null,
-    settingGroup: setting.settingGroup ?? setting.setting_group ?? SETTING_GROUP,
-    settingKey,
-    settingValue: setting.settingValue ?? setting.setting_value ?? null,
-    description: setting.description ?? null,
-    createdAt: setting.createdAt ?? null,
-    updatedAt: setting.updatedAt ?? null,
-  };
+function getSettingLabel(setting: BusinessSetting) {
+  return setting.label || FALLBACK_LABELS[setting.settingKey] || setting.settingKey;
 }
 
 function formatSettingValue(value: string | null | undefined) {
   if (value === null || value === undefined || value === "") {
-    return "Global default";
+    return "Not set";
   }
 
   return value;
@@ -965,51 +623,4 @@ function getManagerErrorMessage(status: number | undefined, body: unknown, fallb
   }
 
   return fallback;
-}
-
-function SettingInput({
-  definition,
-  disabled,
-  onChange,
-  placeholder,
-  value,
-}: {
-  definition: SettingDefinition;
-  disabled?: boolean;
-  onChange: (value: string) => void;
-  placeholder: string;
-  value: string;
-}) {
-  return (
-    <input
-      className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:bg-slate-100"
-      disabled={disabled}
-      inputMode={definition.kind === "number" ? "decimal" : "text"}
-      onChange={(event) => onChange(event.target.value)}
-      placeholder={placeholder}
-      step={definition.step}
-      type={definition.kind === "number" ? "number" : "text"}
-      value={value}
-    />
-  );
-}
-
-function SettingField({
-  children,
-  label,
-  required = false,
-}: {
-  children: React.ReactNode;
-  label: string;
-  required?: boolean;
-}) {
-  return (
-    <label className="block">
-      <span className="text-sm font-semibold text-slate-700">
-        {label}
-        {required ? <span className="text-primary"> *</span> : null}
-      </span>
-      <span className="mt-2 block">{children}</span>
-    </label>
-  );
 }

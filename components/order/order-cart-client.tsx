@@ -1,37 +1,46 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { CreditCard, Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { CartResponse } from "@/lib/cart-types";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { cartIdKeyPrefix, getAuthHeaders, getOrCreateGuestSessionId, loadOrCreateCart, normalizeCart, normalizePayload, notifyCartChanged } from "@/lib/cart-client";
+import type { CartResponse, CheckoutResponse, RedemptionPreviewResponse } from "@/lib/cart-types";
 import type { Dictionary } from "@/lib/i18n";
 import { flattenMenuCatalog, type ResolvedMenuItem } from "@/lib/menu-catalog";
 import type { MenuCatalogResponse } from "@/lib/menu-management-types";
 
-const guestSessionKey = "umika_guest_session_id";
-const cartIdKeyPrefix = "umika_cart_id";
-
 export function OrderCartClient({ copy }: { copy: Dictionary }) {
+  const searchParams = useSearchParams();
   const [menuItems, setMenuItems] = useState<ResolvedMenuItem[]>([]);
   const [cart, setCart] = useState<CartResponse | null>(null);
+  const [selectedLocationId, setSelectedLocationId] = useState("");
+  const [redemptionPreview, setRedemptionPreview] = useState<RedemptionPreviewResponse | null>(null);
+  const [checkoutResult, setCheckoutResult] = useState<CheckoutResponse | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [message, setMessage] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [isTipDialogOpen, setIsTipDialogOpen] = useState(false);
   const [sessionId, setSessionId] = useState("");
-
-  const authHeaders = useCallback(() => {
-    const token = localStorage.getItem("umika_access_token");
-    const headers = new Headers();
-
-    if (token) {
-      headers.set("Authorization", `Bearer ${token}`);
-    }
-
-    return headers;
-  }, []);
+  const [pointsToRedeem, setPointsToRedeem] = useState(0);
+  const [customerNote, setCustomerNote] = useState("");
+  const [tipMode, setTipMode] = useState<"0" | "10" | "15" | "18" | "custom">("0");
+  const [customTipAmount, setCustomTipAmount] = useState(0);
+  const [orderType, setOrderType] = useState<"PICKUP" | "DELIVERY" | "DINE_IN">("PICKUP");
+  const subtotal = Number(redemptionPreview?.subtotal ?? cart?.subtotal ?? 0);
+  const tipAmount = calculateTipAmount(subtotal, tipMode, customTipAmount);
+  const previewTipAmount = redemptionPreview?.tipAmount ?? tipAmount;
+  const tax = redemptionPreview?.taxAmount ?? redemptionPreview?.tax;
+  const finalTotal = redemptionPreview?.finalTotal ?? redemptionPreview?.total;
+  const redemptionAmount = redemptionPreview?.redemptionAmount;
+  const availablePoints = Number(redemptionPreview?.availablePoints ?? 0);
+  const maxRedeemablePoints = Number(redemptionPreview?.maxRedeemablePoints ?? 0);
+  const canRedeemPoints = Boolean(redemptionPreview && availablePoints > 0 && maxRedeemablePoints > 0);
 
   useEffect(() => {
     setSessionId(getOrCreateGuestSessionId());
@@ -39,46 +48,17 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
 
   const loadCart = useCallback(
     async (selectedLocationId: string) => {
-      const storedCartId = localStorage.getItem(`${cartIdKeyPrefix}:${selectedLocationId}`);
-
-      if (storedCartId) {
-        const response = await fetch(`/api/cart/${storedCartId}?sessionId=${encodeURIComponent(sessionId)}`, {
-          method: "GET",
-          headers: authHeaders(),
-          cache: "no-store",
-        }).catch(() => null);
-
-        if (response?.ok) {
-          setCart((await response.json()) as CartResponse);
-          return;
-        }
-      }
-
-      const headers = authHeaders();
-      headers.set("Content-Type", "application/json");
-
-      const response = await fetch("/api/cart", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          locationId: selectedLocationId,
-          sessionId,
-        }),
-        cache: "no-store",
-      }).catch(() => null);
-
-      if (!response?.ok) {
-        throw new Error(copy.orderPage.cartError);
-      }
-
-      const nextCart = (await response.json()) as CartResponse;
-      localStorage.setItem(`${cartIdKeyPrefix}:${selectedLocationId}`, nextCart.id);
+      const nextCart = await loadOrCreateCart(selectedLocationId, sessionId, copy.orderPage.cartError);
       setCart(nextCart);
     },
-    [authHeaders, copy.orderPage.cartError, sessionId],
+    [copy.orderPage.cartError, sessionId],
   );
 
   useEffect(() => {
+    const locationId = searchParams.get("locationId") ?? searchParams.get("location") ?? searchParams.get("storeId") ?? searchParams.get("store");
+    const locationCode = searchParams.get("locationCode") ?? searchParams.get("storeCode");
+    let active = true;
+
     async function load() {
       if (!sessionId) {
         return;
@@ -86,8 +66,24 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
 
       setStatus("loading");
       setMessage(null);
+      setCart(null);
+      setRedemptionPreview(null);
+      setCheckoutResult(null);
 
-      const locationResponse = await fetch("/api/locations/current", { cache: "no-store" }).catch(() => null);
+      const locationUrl = new URL("/api/locations/current", window.location.origin);
+
+      if (locationId) {
+        locationUrl.searchParams.set("locationId", locationId);
+      }
+
+      if (locationCode) {
+        locationUrl.searchParams.set("locationCode", locationCode);
+      }
+
+      const locationResponse = await fetch(locationUrl.toString(), {
+        headers: getAuthHeaders(),
+        cache: "no-store",
+      }).catch(() => null);
 
       if (!locationResponse?.ok) {
         setStatus("error");
@@ -95,20 +91,22 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
         return;
       }
 
-      const location = (await locationResponse.json()) as { id?: string };
-      const selectedLocationId = location.id ?? "";
+      const location = (await locationResponse.json()) as { id?: string; locationId?: string };
+      const nextLocationId = location.id ?? location.locationId ?? "";
 
-      if (!selectedLocationId) {
+      if (!nextLocationId) {
         setStatus("error");
         setMessage(copy.orderPage.locationRequired);
         return;
       }
 
+      setSelectedLocationId(nextLocationId);
+
       const catalogUrl = new URL("/api/menu-catalog", window.location.origin);
-      catalogUrl.searchParams.set("locationId", selectedLocationId);
+      catalogUrl.searchParams.set("locationId", nextLocationId);
 
       const menuResponse = await fetch(catalogUrl.toString(), {
-        headers: authHeaders(),
+        headers: getAuthHeaders(),
         cache: "no-store",
       }).catch(() => null);
 
@@ -119,7 +117,16 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
         setMessage(resolveErrorMessage(body, copy.menuPage.loadError));
       }
 
-      await loadCart(selectedLocationId);
+      if (!active) {
+        return;
+      }
+
+      await loadCart(nextLocationId);
+
+      if (!active) {
+        return;
+      }
+
       setStatus("ready");
     }
 
@@ -127,7 +134,39 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : copy.orderPage.cartError);
     });
-  }, [authHeaders, copy.menuPage.loadError, copy.orderPage.cartError, copy.orderPage.locationRequired, loadCart, sessionId]);
+    return () => {
+      active = false;
+    };
+  }, [copy.menuPage.loadError, copy.orderPage.cartError, copy.orderPage.locationRequired, loadCart, searchParams, sessionId]);
+
+  useEffect(() => {
+    if (!cart?.items.length) {
+      setRedemptionPreview(null);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void previewRedemption();
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart?.id, cart?.subtotal, cart?.items.length, pointsToRedeem, tipAmount]);
+
+  useEffect(() => {
+    if (!redemptionPreview) {
+      return;
+    }
+
+    const availablePoints = Number(redemptionPreview.availablePoints ?? 0);
+    const maxRedeemablePoints = Number(redemptionPreview.maxRedeemablePoints ?? 0);
+
+    if ((availablePoints <= 0 || maxRedeemablePoints <= 0) && pointsToRedeem !== 0) {
+      setPointsToRedeem(0);
+    }
+  }, [pointsToRedeem, redemptionPreview]);
 
   async function addItem(menuItemId: string) {
     if (!cart) {
@@ -137,13 +176,14 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
     setPendingId(menuItemId);
     setMessage(null);
 
-    const headers = authHeaders();
+    const headers = getAuthHeaders();
     headers.set("Content-Type", "application/json");
 
     const response = await fetch(`/api/cart/${cart.id}/items?sessionId=${encodeURIComponent(sessionId)}`, {
       method: "POST",
       headers,
       body: JSON.stringify({
+        locationId: selectedLocationId,
         menuItemId,
         quantity: 1,
         optionIds: [],
@@ -160,7 +200,12 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
       return;
     }
 
-    setCart((await response.json()) as CartResponse);
+    const nextCart = normalizeCart(await response.json().catch(() => null));
+
+    if (nextCart) {
+      setCart(nextCart);
+      notifyCartChanged();
+    }
   }
 
   async function setQuantity(itemId: string, quantity: number) {
@@ -174,7 +219,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
     }
 
     setPendingId(itemId);
-    const headers = authHeaders();
+    const headers = getAuthHeaders();
     headers.set("Content-Type", "application/json");
 
     const response = await fetch(`/api/cart/${cart.id}/items/${itemId}?sessionId=${encodeURIComponent(sessionId)}`, {
@@ -192,7 +237,12 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
       return;
     }
 
-    setCart((await response.json()) as CartResponse);
+    const nextCart = normalizeCart(await response.json().catch(() => null));
+
+    if (nextCart) {
+      setCart(nextCart);
+      notifyCartChanged();
+    }
   }
 
   async function removeItem(itemId: string) {
@@ -203,7 +253,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
     setPendingId(itemId);
     const response = await fetch(`/api/cart/${cart.id}/items/${itemId}?sessionId=${encodeURIComponent(sessionId)}`, {
       method: "DELETE",
-      headers: authHeaders(),
+      headers: getAuthHeaders(),
       cache: "no-store",
     }).catch(() => null);
 
@@ -215,12 +265,97 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
       return;
     }
 
-    setCart((await response.json()) as CartResponse);
+    const nextCart = normalizeCart(await response.json().catch(() => null));
+
+    if (nextCart) {
+      setCart(nextCart);
+      notifyCartChanged();
+    }
   }
 
-  const subtotal = Number(cart?.subtotal ?? 0);
-  const tax = subtotal * 0.13;
-  const total = subtotal + tax;
+  async function previewRedemption() {
+    if (!cart?.id) {
+      return null;
+    }
+
+    const headers = getAuthHeaders();
+    headers.set("Content-Type", "application/json");
+
+    const response = await fetch("/api/orders/redemption-preview", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        cartId: cart.id,
+        pointsToRedeem,
+        tipAmount,
+      }),
+      cache: "no-store",
+    }).catch(() => null);
+
+    if (!response?.ok) {
+      const body = response ? await response.json().catch(() => null) : null;
+      setMessage(resolveErrorMessage(body, copy.orderPage.previewError));
+      setRedemptionPreview(null);
+      return null;
+    }
+
+    const preview = normalizePayload<RedemptionPreviewResponse>(await response.json().catch(() => null));
+    setRedemptionPreview(preview);
+    return preview;
+  }
+
+  async function checkout() {
+    if (!cart?.id) {
+      return;
+    }
+
+    setIsCheckingOut(true);
+    setMessage(null);
+    setCheckoutResult(null);
+
+    const preview = await previewRedemption();
+
+    if (!preview) {
+      setIsCheckingOut(false);
+      return;
+    }
+
+    const headers = getAuthHeaders();
+    headers.set("Content-Type", "application/json");
+
+    const response = await fetch("/api/orders/checkout", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        cartId: cart.id,
+        orderType,
+        addressId: null,
+        customerNote: customerNote.trim() || null,
+        pointsToRedeem: canRedeemPoints ? pointsToRedeem : 0,
+        tipAmount,
+      }),
+      cache: "no-store",
+    }).catch(() => null);
+
+    setIsCheckingOut(false);
+
+    if (!response?.ok) {
+      const body = response ? await response.json().catch(() => null) : null;
+      setMessage(resolveErrorMessage(body, copy.orderPage.checkoutError));
+      return;
+    }
+
+    const order = normalizePayload<CheckoutResponse>(await response.json().catch(() => null));
+    setCheckoutResult(order);
+    setIsTipDialogOpen(false);
+    setCart(null);
+
+    if (selectedLocationId) {
+      localStorage.removeItem(`${cartIdKeyPrefix}:${selectedLocationId}`);
+      await loadCart(selectedLocationId).catch(() => null);
+      notifyCartChanged();
+    }
+  }
 
   return (
     <section className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 lg:grid-cols-[1fr_400px] lg:px-8">
@@ -266,6 +401,11 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
             {cart?.items.length ?? 0} {copy.orderPage.items}
           </Badge>
         </div>
+        {message ? (
+          <p className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {message}
+          </p>
+        ) : null}
         <div className="mt-5 space-y-4">
           {cart?.items.length ? (
             cart.items.map((item) => (
@@ -297,34 +437,202 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
             <span className="text-muted-foreground">{copy.orderPage.subtotal}</span>
             <span>${subtotal.toFixed(2)}</span>
           </div>
+          <label className="block pt-2 text-sm font-medium">
+            {copy.orderPage.orderType}
+            <select
+              className="mt-2 h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+              onChange={(event) => setOrderType(event.target.value as "PICKUP" | "DELIVERY" | "DINE_IN")}
+              value={orderType}
+            >
+              <option value="PICKUP">{copy.orderPage.pickup}</option>
+              <option value="DELIVERY">{copy.orderPage.delivery}</option>
+              <option value="DINE_IN">{copy.orderPage.dineIn}</option>
+            </select>
+          </label>
+          {canRedeemPoints && redemptionPreview ? (
+            <label className="block pt-2 text-sm font-medium">
+              {copy.orderPage.pointsToRedeem}
+              <input
+                className="mt-2 h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                max={maxRedeemablePoints}
+                min={0}
+                onChange={(event) => setPointsToRedeem(Math.max(0, Math.min(maxRedeemablePoints, Number(event.target.value) || 0)))}
+                step={1}
+                type="number"
+                value={pointsToRedeem}
+              />
+            </label>
+          ) : null}
+          <label className="block pt-2 text-sm font-medium">
+            {copy.orderPage.customerNote}
+            <textarea
+              className="mt-2 min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+              onChange={(event) => setCustomerNote(event.target.value)}
+              placeholder={copy.orderPage.customerNotePlaceholder}
+              value={customerNote}
+            />
+          </label>
+          {canRedeemPoints && redemptionPreview ? (
+            <div className="space-y-2 border-t pt-3">
+              <PreviewRow label={copy.orderPage.availablePoints} value={formatPoints(redemptionPreview.availablePoints)} />
+              <PreviewRow label={copy.orderPage.appliedPoints} value={formatPoints(redemptionPreview.appliedPoints)} />
+              <PreviewRow label={copy.orderPage.maxRedeemablePoints} value={formatPoints(redemptionPreview.maxRedeemablePoints)} />
+              <PreviewRow label={copy.orderPage.redemptionAmount} value={formatMoney(redemptionAmount)} />
+            </div>
+          ) : null}
+          {redemptionPreview ? (
+            <div className="space-y-2 border-t pt-3">
+              <PreviewRow label={copy.orderPage.taxableAmount} value={formatMoney(redemptionPreview.taxableAmount)} />
+              <PreviewRow label={copy.orderPage.taxRate} value={formatPercent(redemptionPreview.taxRate)} />
+            </div>
+          ) : null}
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">{copy.orderPage.redemptionAmount}</span>
+            <span>{formatMoney(redemptionAmount)}</span>
+          </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">{copy.orderPage.tax}</span>
-            <span>${tax.toFixed(2)}</span>
+            <span>{formatMoney(tax)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">{copy.orderPage.tipAmount}</span>
+            <span>{formatMoney(previewTipAmount)}</span>
           </div>
           <div className="flex justify-between border-t pt-3 text-base font-semibold">
-            <span>{copy.orderPage.total}</span>
-            <span>${total.toFixed(2)}</span>
+            <span>{copy.orderPage.finalTotal}</span>
+            <span>{formatMoney(finalTotal)}</span>
           </div>
         </div>
-        <Button className="mt-6 w-full whitespace-normal" disabled={!cart?.items.length} size="lg">
+        {checkoutResult ? (
+          <OrderReview order={checkoutResult} copy={copy} />
+        ) : null}
+        <Button className="mt-6 w-full whitespace-normal" disabled={!cart?.items.length || isCheckingOut} size="lg" onClick={() => setIsTipDialogOpen(true)} type="button">
           <CreditCard className="h-4 w-4" />
           {copy.orderPage.checkout}
         </Button>
       </aside>
+      <Dialog open={isTipDialogOpen} onOpenChange={setIsTipDialogOpen}>
+        <DialogContent className="w-[min(96vw,30rem)]">
+          <DialogHeader>
+            <DialogTitle>{copy.orderPage.tip}</DialogTitle>
+            <DialogDescription>{copy.orderPage.tipDescription}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 p-5">
+            {message ? (
+              <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {message}
+              </p>
+            ) : null}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {(["0", "10", "15", "18"] as const).map((value) => (
+                <Button
+                  className="h-11 px-2 text-sm"
+                  key={value}
+                  onClick={() => setTipMode(value)}
+                  type="button"
+                  variant={tipMode === value ? "default" : "outline"}
+                >
+                  {value === "0" ? copy.orderPage.noTip : `${value}%`}
+                </Button>
+              ))}
+            </div>
+            <div className="grid gap-2 sm:grid-cols-[1fr_140px]">
+              <Button
+                className="h-11 px-2 text-sm"
+                onClick={() => setTipMode("custom")}
+                type="button"
+                variant={tipMode === "custom" ? "default" : "outline"}
+              >
+                {copy.orderPage.customTip}
+              </Button>
+              <input
+                aria-label={copy.orderPage.customTip}
+                className="h-11 w-full rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                disabled={tipMode !== "custom"}
+                min={0}
+                onChange={(event) => setCustomTipAmount(roundMoney(Math.max(0, Number(event.target.value) || 0)))}
+                step="0.01"
+                type="number"
+                value={customTipAmount}
+              />
+            </div>
+            <div className="space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
+              <PreviewRow label={copy.orderPage.subtotal} value={formatMoney(subtotal)} />
+              <PreviewRow label={copy.orderPage.redemptionAmount} value={formatMoney(redemptionAmount)} />
+              <PreviewRow label={copy.orderPage.tax} value={formatMoney(tax)} />
+              <PreviewRow label={copy.orderPage.tipAmount} value={formatMoney(previewTipAmount)} />
+              <div className="border-t pt-2">
+                <PreviewRow label={copy.orderPage.finalTotal} value={formatMoney(finalTotal)} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="justify-end">
+            <Button type="button" variant="outline" onClick={() => setIsTipDialogOpen(false)}>
+              {copy.common.cancel}
+            </Button>
+            <Button disabled={!cart?.items.length || isCheckingOut} onClick={() => void checkout()} type="button">
+              <CreditCard className="h-4 w-4" />
+              {copy.orderPage.confirmOrder}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
 
-function getOrCreateGuestSessionId() {
-  const existing = localStorage.getItem(guestSessionKey);
+function PreviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-muted-foreground">{label}</span>
+      <span>{value}</span>
+    </div>
+  );
+}
 
-  if (existing) {
-    return existing;
-  }
+function OrderReview({ order, copy }: { order: CheckoutResponse; copy: Dictionary }) {
+  const items = order.items ?? [];
+  const orderId = order.orderNumber ?? order.id ?? order.orderId;
 
-  const value = crypto.randomUUID();
-  localStorage.setItem(guestSessionKey, value);
-  return value;
+  return (
+    <div className="mt-5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
+      <p className="font-semibold">{copy.orderPage.checkoutReady}</p>
+      <div className="mt-3 space-y-2">
+        {orderId ? <PreviewRow label={copy.orderPage.orderNumber} value={String(orderId)} /> : null}
+        {order.status ? <PreviewRow label={copy.orderPage.orderStatus} value={order.status} /> : null}
+        {order.orderType ? <PreviewRow label={copy.orderPage.orderType} value={formatOrderType(order.orderType, copy)} /> : null}
+        {order.customerNote ? <PreviewRow label={copy.orderPage.customerNote} value={order.customerNote} /> : null}
+        <PreviewRow label={copy.orderPage.subtotal} value={formatMoney(order.subtotal)} />
+        <PreviewRow label={copy.orderPage.totalDiscount} value={formatMoney(order.totalDiscount)} />
+        <PreviewRow label={copy.orderPage.redemptionAmount} value={formatMoney(order.rewardDiscountAmount)} />
+        {typeof order.tipAmount === "number" ? <PreviewRow label={copy.orderPage.tipAmount} value={formatMoney(order.tipAmount)} /> : null}
+        <PreviewRow label={copy.orderPage.taxRate} value={formatPercent(order.taxRate)} />
+        <PreviewRow label={copy.orderPage.tax} value={formatMoney(order.taxAmount ?? order.tax)} />
+        <PreviewRow label={copy.orderPage.finalTotal} value={formatMoney(order.finalTotal ?? order.total)} />
+        <PreviewRow label={copy.orderPage.pointsRedeemed} value={formatPoints(order.pointsRedeemed)} />
+        <PreviewRow label={copy.orderPage.pointsEarned} value={formatPoints(order.pointsEarned)} />
+      </div>
+      {items.length ? (
+        <div className="mt-4 border-t border-emerald-200 pt-3">
+          <p className="font-semibold">{copy.orderPage.items}</p>
+          <div className="mt-2 space-y-2">
+            {items.map((item, index) => {
+              const name = item.itemName ?? item.name ?? item.menuItemId ?? `Item ${index + 1}`;
+              return (
+                <div key={item.id ?? `${name}-${index}`} className="flex justify-between gap-3">
+                  <span className="min-w-0 truncate">
+                    {name} x {item.quantity ?? 1}
+                  </span>
+                  <span>{formatMoney(item.lineTotal)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+      <p className="mt-4 text-xs text-emerald-800">{copy.orderPage.paymentNext}</p>
+    </div>
+  );
 }
 
 function resolveErrorMessage(body: unknown, fallback: string) {
@@ -339,4 +647,45 @@ function resolveErrorMessage(body: unknown, fallback: string) {
   }
 
   return fallback;
+}
+
+function formatMoney(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? `$${value.toFixed(2)}` : "--";
+}
+
+function formatPoints(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "--";
+}
+
+function formatPercent(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(2)}%` : "--";
+}
+
+function formatOrderType(value: string, copy: Dictionary) {
+  if (value === "PICKUP") {
+    return copy.orderPage.pickup;
+  }
+
+  if (value === "DELIVERY") {
+    return copy.orderPage.delivery;
+  }
+
+  if (value === "DINE_IN") {
+    return copy.orderPage.dineIn;
+  }
+
+  return value;
+}
+
+function calculateTipAmount(subtotal: number, tipMode: "0" | "10" | "15" | "18" | "custom", customTipAmount: number) {
+  if (tipMode === "custom") {
+    return roundMoney(customTipAmount);
+  }
+
+  const percent = Number(tipMode);
+  return roundMoney((subtotal * percent) / 100);
+}
+
+function roundMoney(value: number) {
+  return Number.isFinite(value) ? Math.round(Math.max(0, value) * 100) / 100 : 0;
 }

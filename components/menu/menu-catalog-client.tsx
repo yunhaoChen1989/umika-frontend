@@ -9,6 +9,8 @@ import { Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getAuthHeaders, getOrCreateGuestSessionId, loadOrCreateCart, normalizeCart, notifyCartChanged } from "@/lib/cart-client";
+import type { CartResponse } from "@/lib/cart-types";
 import type { Dictionary } from "@/lib/i18n";
 import { flattenMenuCatalog, flattenMenuCategories, type ResolvedMenuCategory, type ResolvedMenuItem } from "@/lib/menu-catalog";
 import type { MenuCatalogResponse } from "@/lib/menu-management-types";
@@ -19,8 +21,16 @@ export function MenuCatalogClient({ copy }: { copy: Dictionary }) {
   const [categories, setCategories] = useState<ResolvedMenuCategory[]>([]);
   const [items, setItems] = useState<ResolvedMenuItem[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("all");
+  const [selectedLocationId, setSelectedLocationId] = useState("");
+  const [cart, setCart] = useState<CartResponse | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [message, setMessage] = useState<string | null>(null);
+  const [pendingItemId, setPendingItemId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState("");
+
+  useEffect(() => {
+    setSessionId(getOrCreateGuestSessionId());
+  }, []);
 
   useEffect(() => {
     const locationId = searchParams.get("locationId") ?? searchParams.get("location") ?? searchParams.get("storeId") ?? searchParams.get("store");
@@ -42,7 +52,7 @@ export function MenuCatalogClient({ copy }: { copy: Dictionary }) {
       }
 
       const locationResponse = await fetch(locationUrl.toString(), {
-        headers: authHeaders(),
+        headers: getAuthHeaders(),
         cache: "no-store",
       }).catch(() => null);
       const location = locationResponse?.ok ? ((await locationResponse.json()) as { id?: string; locationId?: string }) : null;
@@ -51,11 +61,12 @@ export function MenuCatalogClient({ copy }: { copy: Dictionary }) {
 
       if (resolvedLocationId) {
         url.searchParams.set("locationId", resolvedLocationId);
+        setSelectedLocationId(resolvedLocationId);
       }
 
       const response = await fetch(url.toString(), {
         method: "GET",
-        headers: authHeaders(),
+        headers: getAuthHeaders(),
         cache: "no-store",
       }).catch(() => null);
 
@@ -78,6 +89,7 @@ export function MenuCatalogClient({ copy }: { copy: Dictionary }) {
       setCategories(flattenMenuCategories(catalog));
       setItems(flattenMenuCatalog(catalog));
       setSelectedCategoryId("all");
+      setCart(null);
       setStatus("ready");
     }
 
@@ -87,6 +99,52 @@ export function MenuCatalogClient({ copy }: { copy: Dictionary }) {
       active = false;
     };
   }, [copy.menuPage.loadError, searchParams]);
+
+  async function addItem(menuItemId: string) {
+    if (!selectedLocationId || !sessionId) {
+      setMessage(copy.orderPage.locationRequired);
+      return;
+    }
+
+    setPendingItemId(menuItemId);
+    setMessage(null);
+
+    try {
+      const activeCart = cart ?? (await loadOrCreateCart(selectedLocationId, sessionId, copy.orderPage.cartError));
+      const headers = getAuthHeaders();
+      headers.set("Content-Type", "application/json");
+
+      const response = await fetch(`/api/cart/${activeCart.id}/items?sessionId=${encodeURIComponent(sessionId)}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          locationId: selectedLocationId,
+          menuItemId,
+          quantity: 1,
+          optionIds: [],
+          note: null,
+        }),
+        cache: "no-store",
+      }).catch(() => null);
+
+      if (!response?.ok) {
+        const body = response ? await response.json().catch(() => null) : null;
+        setMessage(resolveErrorMessage(body, copy.orderPage.cartError));
+        return;
+      }
+
+      const nextCart = normalizeCart(await response.json().catch(() => null));
+
+      if (nextCart) {
+        setCart(nextCart);
+        notifyCartChanged();
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : copy.orderPage.cartError);
+    } finally {
+      setPendingItemId(null);
+    }
+  }
 
   const visibleItems = selectedCategoryId === "all" ? items : items.filter((item) => item.categoryId === selectedCategoryId);
 
@@ -137,7 +195,13 @@ export function MenuCatalogClient({ copy }: { copy: Dictionary }) {
                 <p className="text-sm leading-6 text-muted-foreground">{item.description}</p>
                 <div className="mt-5 flex items-center justify-between gap-3">
                   <Badge>{item.categoryName}</Badge>
-                  <Button size="icon" aria-label={`${copy.menuPage.add} ${item.name}`}>
+                  <Button
+                    size="icon"
+                    aria-label={`${copy.menuPage.add} ${item.name}`}
+                    disabled={pendingItemId === item.id || !selectedLocationId}
+                    onClick={() => void addItem(item.id)}
+                    type="button"
+                  >
                     <Plus className="h-4 w-4" />
                   </Button>
                 </div>
@@ -148,17 +212,6 @@ export function MenuCatalogClient({ copy }: { copy: Dictionary }) {
       </div>
     </>
   );
-}
-
-function authHeaders() {
-  const token = localStorage.getItem("umika_access_token");
-  const headers = new Headers();
-
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
-  return headers;
 }
 
 function resolveErrorMessage(body: unknown, fallback: string) {
