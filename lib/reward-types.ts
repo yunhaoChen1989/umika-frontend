@@ -17,6 +17,7 @@ export type RewardSummaryResponse = {
   referralRegisterPoints?: number | null;
   referralFirstOrderPoints?: number | null;
   referralFirstOrderMinimum?: number | null;
+  minReferralOrderAmount?: number | null;
   referralCode?: string | null;
   referralInviteUrl?: string | null;
   inviteUrl?: string | null;

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ClipboardList } from "lucide-react";
 
+import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { CheckoutResponse } from "@/lib/cart-types";
@@ -24,6 +25,7 @@ type OrderHistoryCopy = {
   orderNote: string;
   tipAmount: string;
   loginRequired: string;
+  login: string;
 };
 
 export function OrderHistoryPanel({ copy }: { copy: OrderHistoryCopy }) {
@@ -81,7 +83,12 @@ export function OrderHistoryPanel({ copy }: { copy: OrderHistoryCopy }) {
         <h2 className="text-2xl font-semibold">{copy.orderHistoryTitle}</h2>
       </div>
       {status === "loading" ? <p className="mt-4 text-sm text-muted-foreground">{copy.orderHistoryLoading}</p> : null}
-      {status === "unauthenticated" ? <p className="mt-4 text-sm text-muted-foreground">{copy.loginRequired}</p> : null}
+      {status === "unauthenticated" ? (
+        <p className="mt-4 text-sm text-muted-foreground">
+          {copy.loginRequired}{" "}
+          <LoginRedirectLink className="font-semibold text-primary underline underline-offset-4">{copy.login}</LoginRedirectLink>
+        </p>
+      ) : null}
       {status === "error" ? <p className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{copy.orderHistoryError}</p> : null}
       {status === "ready" && orders.length === 0 ? <p className="mt-4 text-sm text-muted-foreground">{copy.orderHistoryEmpty}</p> : null}
       {orders.length ? (

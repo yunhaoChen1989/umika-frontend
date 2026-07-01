@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Copy, Gift, History, Share2, Sparkles } from "lucide-react";
 
+import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -124,7 +125,12 @@ export function RewardsClient({ copy }: { copy: Dictionary }) {
   }
 
   if (status === "unauthenticated") {
-    return <p className="mx-auto max-w-7xl px-4 py-12 text-sm text-muted-foreground sm:px-6 lg:px-8">{copy.rewardsPage.loginRequired}</p>;
+    return (
+      <p className="mx-auto max-w-7xl px-4 py-12 text-sm text-muted-foreground sm:px-6 lg:px-8">
+        {copy.rewardsPage.loginRequired}{" "}
+        <LoginRedirectLink className="font-semibold text-primary underline underline-offset-4">{copy.common.login}</LoginRedirectLink>
+      </p>
+    );
   }
 
   return (
@@ -270,7 +276,7 @@ function formatPointValue(pointValueCents: number | null | undefined) {
 function formatReferralReward(summary: RewardSummaryResponse | null) {
   const registerPoints = summary?.referralRegisterPoints;
   const firstOrderPoints = summary?.referralFirstOrderPoints;
-  const minimum = summary?.referralFirstOrderMinimum;
+  const minimum = summary?.referralFirstOrderMinimum ?? summary?.minReferralOrderAmount;
 
   if (typeof registerPoints === "number" || typeof firstOrderPoints === "number") {
     const total = Number(registerPoints ?? 0) + Number(firstOrderPoints ?? 0);
