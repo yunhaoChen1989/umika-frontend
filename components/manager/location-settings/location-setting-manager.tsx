@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, RefreshCw, Save, Search, ShieldCheck, Trash2, X } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { AlertCircle, CheckCircle2, RefreshCw, Save, Trash2, X } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { Badge } from "@/components/ui/badge";
@@ -69,10 +70,11 @@ const FALLBACK_LABELS: Record<string, string> = {
 };
 
 export function LocationSettingManager() {
+  const searchParams = useSearchParams();
+  const searchParamsKey = searchParams.toString();
   const [locations, setLocations] = useState<LocationDto[]>([]);
   const [selectedLocationId, setSelectedLocationId] = useState("");
-  const [locationQuery, setLocationQuery] = useState("");
-  const [locationSelectionSource, setLocationSelectionSource] = useState<"stored" | "manual" | null>(null);
+  const [useGlobalSettings, setUseGlobalSettings] = useState(false);
   const [effectiveSettings, setEffectiveSettings] = useState<BusinessSettingsResponse | null>(null);
   const [drafts, setDrafts] = useState<Record<string, SettingDraft>>({});
   const [status, setStatus] = useState<"loading" | "ready" | "unauthenticated" | "error">("loading");
@@ -85,24 +87,7 @@ export function LocationSettingManager() {
 
   const locationById = useMemo(() => new Map(locations.map((location) => [location.id, location])), [locations]);
   const selectedLocation = selectedLocationId ? locationById.get(selectedLocationId) ?? null : null;
-  const locationLocked = Boolean(selectedLocationId) && !canChangeStore;
   const isGlobalMode = !selectedLocationId;
-
-  const filteredLocations = useMemo(() => {
-    const query = locationQuery.trim().toLowerCase();
-
-    if (!query) {
-      return locations.slice(0, 8);
-    }
-
-    return locations
-      .filter((location) =>
-        [location.name, location.locationCode, location.addressLine1, location.city, location.province]
-          .filter(Boolean)
-          .some((value) => value!.toLowerCase().includes(query)),
-      )
-      .slice(0, 12);
-  }, [locationQuery, locations]);
 
   const groupedSettings = useMemo(() => {
     const groups = new Map<string, BusinessSetting[]>();
@@ -195,28 +180,36 @@ export function LocationSettingManager() {
   }, [loadShell]);
 
   useEffect(() => {
-    if (locationSelectionSource !== null || selectedLocationId || locations.length === 0 || canChangeStore) {
+    setUseGlobalSettings(false);
+  }, [searchParamsKey]);
+
+  useEffect(() => {
+    if (status !== "ready" || locations.length === 0) {
       return;
     }
 
-    const storedLocation = getStoredLocationContext();
+    if (canChangeStore && useGlobalSettings) {
+      if (selectedLocationId) {
+        setSelectedLocationId("");
+        setMessage(null);
+        setError(null);
+      }
 
-    if (!storedLocation.locationId && !storedLocation.locationCode) {
       return;
     }
 
+    const storedLocation = getStoredLocationContext(searchParams);
     const matchedLocation = locations.find(
       (location) => location.id === storedLocation.locationId || location.locationCode === storedLocation.locationCode,
     );
+    const nextLocationId = matchedLocation?.id ?? "";
 
-    if (!matchedLocation?.id) {
-      return;
+    if (nextLocationId !== selectedLocationId) {
+      setSelectedLocationId(nextLocationId);
+      setMessage(null);
+      setError(null);
     }
-
-    setSelectedLocationId(matchedLocation.id);
-    setLocationQuery(matchedLocation.name);
-    setLocationSelectionSource("stored");
-  }, [canChangeStore, locationSelectionSource, locations, selectedLocationId]);
+  }, [canChangeStore, locations, searchParams, selectedLocationId, status, useGlobalSettings]);
 
   useEffect(() => {
     if (status !== "ready") {
@@ -226,30 +219,6 @@ export function LocationSettingManager() {
     void loadEffectiveSettings(selectedLocationId);
   }, [loadEffectiveSettings, selectedLocationId, status]);
 
-  function selectLocation(location: LocationDto) {
-    if (locationLocked) {
-      return;
-    }
-
-    setSelectedLocationId(location.id ?? "");
-    setLocationQuery(location.name);
-    setLocationSelectionSource("manual");
-    setMessage(null);
-    setError(null);
-  }
-
-  function clearSelection() {
-    if (locationLocked) {
-      return;
-    }
-
-    setSelectedLocationId("");
-    setLocationQuery("");
-    setLocationSelectionSource("manual");
-    setMessage(null);
-    setError(null);
-  }
-
   function updateDraft(settingKey: string, value: string) {
     setDrafts((current) => ({
       ...current,
@@ -258,6 +227,19 @@ export function LocationSettingManager() {
         value,
       },
     }));
+  }
+
+  function showGlobalSettings() {
+    setUseGlobalSettings(true);
+    setSelectedLocationId("");
+    setMessage(null);
+    setError(null);
+  }
+
+  function useHeaderLocationSelection() {
+    setUseGlobalSettings(false);
+    setMessage(null);
+    setError(null);
   }
 
   async function saveSetting(setting: BusinessSetting) {
@@ -360,10 +342,16 @@ export function LocationSettingManager() {
           <RefreshCw className="h-4 w-4" />
           Refresh
         </Button>
-        {selectedLocationId ? (
-          <Button disabled={locationLocked} onClick={clearSelection} type="button" variant="outline">
+        {canChangeStore && selectedLocationId ? (
+          <Button type="button" variant="outline" onClick={showGlobalSettings}>
             <X className="h-4 w-4" />
-            {canChangeStore ? "Global settings" : "Store locked"}
+            Global settings
+          </Button>
+        ) : null}
+        {canChangeStore && !selectedLocationId && useGlobalSettings ? (
+          <Button type="button" variant="outline" onClick={useHeaderLocationSelection}>
+            <RefreshCw className="h-4 w-4" />
+            Use header location
           </Button>
         ) : null}
       </div>
@@ -381,38 +369,21 @@ export function LocationSettingManager() {
         </div>
       ) : null}
 
-      <div className="grid gap-6 2xl:grid-cols-[430px_1fr]">
+      <div className="grid gap-6 2xl:grid-cols-[360px_1fr]">
         <Card className="rounded-md shadow-none">
           <CardHeader className="border-b border-slate-200">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <CardTitle className="text-base">Store / location</CardTitle>
-                <p className="mt-2 text-sm text-slate-500">
-                  {selectedLocation
-                    ? `Editing effective business settings for ${selectedLocation.name}.`
-                    : "Global system settings are shown when no store is selected."}
-                </p>
-              </div>
-              {locationLocked ? <ShieldCheck className="h-4 w-4 text-slate-400" /> : null}
-            </div>
+            <CardTitle className="text-base">Current location</CardTitle>
+            <p className="mt-2 text-sm text-slate-500">Change the active store from the manager header.</p>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+            <label className="block space-y-2">
+              <span className="text-sm font-semibold text-slate-700">Store</span>
               <input
-                className="h-10 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:bg-slate-100"
-                disabled={locationLocked}
-                onChange={(event) => {
-                  setLocationQuery(event.target.value);
-                  if (!locationLocked) {
-                    setSelectedLocationId("");
-                    setLocationSelectionSource("manual");
-                  }
-                }}
-                placeholder="Search by store name, code, city, or address"
-                value={locationQuery}
+                className="h-10 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none"
+                readOnly
+                value={selectedLocation?.name ?? effectiveSettings?.locationName ?? "Global"}
               />
-            </div>
+            </label>
 
             <div className={cn("rounded-md border px-3 py-2 text-sm", selectedLocation ? "border-primary/30 bg-primary/5" : "border-slate-200 bg-slate-50")}>
               <p className="font-semibold text-slate-950">{selectedLocation?.name ?? effectiveSettings?.locationName ?? "Global"}</p>
@@ -421,41 +392,13 @@ export function LocationSettingManager() {
               </p>
               <p className="mt-2 text-xs text-slate-500">
                 {selectedLocation
-                  ? locationLocked
-                    ? "This store comes from the current user/location context."
-                    : "Admin can switch stores or return to global settings."
+                  ? "This store comes from the manager header location selector."
                   : "No store selected. Saving updates the global/default system value."}
               </p>
             </div>
-
-            <div className="max-h-72 space-y-1 overflow-y-auto">
-              {filteredLocations.map((location) => {
-                const isSelected = selectedLocationId === location.id;
-
-                return (
-                  <button
-                    className={cn(
-                      "block w-full rounded-md border border-slate-200 px-3 py-2 text-left text-sm hover:bg-slate-50",
-                      isSelected && "border-primary/40 bg-primary/5",
-                      locationLocked && !isSelected && "cursor-not-allowed opacity-70 hover:bg-white",
-                    )}
-                    disabled={locationLocked && !isSelected}
-                    key={location.id ?? location.name}
-                    onClick={() => selectLocation(location)}
-                    type="button"
-                  >
-                    <span className="block font-semibold text-slate-950">{location.name}</span>
-                    <span className="mt-1 block truncate text-xs text-slate-500">
-                      {[location.locationCode, location.addressLine1, location.city].filter(Boolean).join(" / ")}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
             <p className="text-xs text-slate-500">
               {canChangeStore
-                ? "Role admin can switch stores or edit global defaults."
+                ? "Role admin can switch stores in the header or edit global defaults when no store is active."
                 : "Non-admin users edit settings only for their assigned/current store."}
             </p>
           </CardContent>
@@ -591,14 +534,22 @@ function formatSettingValue(value: string | null | undefined) {
   return value;
 }
 
-function getStoredLocationContext() {
+function getStoredLocationContext(searchParams?: URLSearchParams) {
   return {
     locationId:
+      searchParams?.get("locationId")?.trim() ??
+      searchParams?.get("location")?.trim() ??
+      searchParams?.get("storeId")?.trim() ??
+      searchParams?.get("store")?.trim() ??
       sessionStorage.getItem("umika_location_id") ??
       sessionStorage.getItem("location_id") ??
       localStorage.getItem("umika_location_id") ??
       localStorage.getItem("location_id"),
-    locationCode: sessionStorage.getItem("umika_location_code") ?? localStorage.getItem("umika_location_code"),
+    locationCode:
+      searchParams?.get("locationCode")?.trim() ??
+      searchParams?.get("storeCode")?.trim() ??
+      sessionStorage.getItem("umika_location_code") ??
+      localStorage.getItem("umika_location_code"),
   };
 }
 

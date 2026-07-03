@@ -52,6 +52,7 @@ export function RewardsClient({ copy }: { copy: Dictionary }) {
 
       if (locationCode) {
         summaryUrl.searchParams.set("locationCode", locationCode);
+        redemptionUrl.searchParams.set("locationCode", locationCode);
       }
 
       transactionsUrl.searchParams.set("page", "0");
@@ -97,16 +98,20 @@ export function RewardsClient({ copy }: { copy: Dictionary }) {
     };
   }, [copy.rewardsPage.loadError, searchParams]);
 
-  const balance = state.summary?.pointsBalance ?? state.summary?.balance ?? state.redemptionStatus?.pointsBalance;
-  const pointsPerDollar = state.summary?.pointsPerDollar;
-  const pointValueCents = state.summary?.pointsValueCents ?? state.summary?.pointValueCents ?? state.redemptionStatus?.pointsValueCents ?? state.redemptionStatus?.pointValueCents;
-  const lifetimeEarned = state.summary?.lifetimePointsEarned ?? state.summary?.lifetimeEarned;
-  const lifetimeRedeemed = state.summary?.lifetimePointsRedeemed ?? state.summary?.lifetimeRedeemed;
+  const balance = firstNumber(state.summary?.pointsBalance, state.summary?.balance, state.redemptionStatus?.pointsBalance);
+  const pointsPerDollar = firstNumber(state.summary?.pointsPerDollar);
+  const pointValueCents = firstNumber(state.summary?.pointsValueCents, state.summary?.pointValueCents, state.redemptionStatus?.pointsValueCents, state.redemptionStatus?.pointValueCents);
+  const lifetimeEarned = firstNumber(state.summary?.lifetimePointsEarned, state.summary?.lifetimeEarned);
+  const lifetimeRedeemed = firstNumber(state.summary?.lifetimePointsRedeemed, state.summary?.lifetimeRedeemed);
   const referralCode = state.summary?.referralCode;
   const inviteUrl = state.summary?.referralInviteUrl ?? state.summary?.inviteUrl;
-  const redeemablePoints = state.redemptionStatus?.redeemablePoints;
-  const redeemableAmount = state.redemptionStatus?.redeemableAmount;
-  const minimumRedeemPoints = state.redemptionStatus?.minimumRedeemPoints ?? state.redemptionStatus?.minRedeemPoints ?? state.summary?.minimumRedeemPoints ?? state.summary?.minRedeemPoints;
+  const minimumRedeemPoints = firstNumber(state.redemptionStatus?.minimumRedeemPoints, state.redemptionStatus?.minRedeemPoints, state.summary?.minimumRedeemPoints, state.summary?.minRedeemPoints);
+  const backendRedeemablePoints = firstNumber(state.redemptionStatus?.redeemablePoints, state.summary?.redeemablePoints);
+  const backendRedeemableAmount = firstNumber(state.redemptionStatus?.redeemableAmount, state.summary?.redeemableAmount);
+  const fallbackRedeemablePoints = calculateRedeemablePoints(balance, minimumRedeemPoints);
+  const redeemablePoints = backendRedeemablePoints && backendRedeemablePoints > 0 ? backendRedeemablePoints : fallbackRedeemablePoints;
+  const fallbackRedeemableAmount = calculateRedeemableAmount(redeemablePoints, pointValueCents);
+  const redeemableAmount = backendRedeemableAmount && backendRedeemableAmount > 0 ? backendRedeemableAmount : fallbackRedeemableAmount;
 
   async function copyInvite() {
     const value = inviteUrl ?? referralCode;
@@ -284,4 +289,49 @@ function formatReferralReward(summary: RewardSummaryResponse | null) {
   }
 
   return "--";
+}
+
+function firstNumber(...values: unknown[]) {
+  for (const value of values) {
+    const number = toNumber(value);
+
+    if (typeof number === "number") {
+      return number;
+    }
+  }
+
+  return undefined;
+}
+
+function toNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : undefined;
+  }
+
+  return undefined;
+}
+
+function calculateRedeemablePoints(balance: number | undefined, minimumRedeemPoints: number | undefined) {
+  if (!balance || balance <= 0) {
+    return 0;
+  }
+
+  if (!minimumRedeemPoints || minimumRedeemPoints <= 0) {
+    return Math.floor(balance);
+  }
+
+  return Math.floor(balance / minimumRedeemPoints) * minimumRedeemPoints;
+}
+
+function calculateRedeemableAmount(redeemablePoints: number | undefined, pointValueCents: number | undefined) {
+  if (!redeemablePoints || !pointValueCents || redeemablePoints <= 0 || pointValueCents <= 0) {
+    return 0;
+  }
+
+  return Math.round((redeemablePoints * pointValueCents) / 100 * 100) / 100;
 }

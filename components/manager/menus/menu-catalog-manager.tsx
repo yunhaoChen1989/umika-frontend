@@ -3,6 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { FormEvent, ReactNode } from "react";
 import {
   AlertCircle,
@@ -13,7 +14,6 @@ import {
   Plus,
   RefreshCw,
   SquareStack,
-  Store,
   ShieldCheck,
   Trash2,
   X,
@@ -263,14 +263,15 @@ async function getApiErrorMessage(response: Response | null, fallback: string) {
 }
 
 export function MenuCatalogManager({ initialKind = "category" }: { initialKind?: MenuFormState["kind"] }) {
+  const searchParams = useSearchParams();
+  const searchParamsKey = searchParams.toString();
   const [locations, setLocations] = useState<LocationDto[]>([]);
   const [categories, setCategories] = useState<MenuCategoryDto[]>([]);
   const [items, setItems] = useState<MenuItemDto[]>([]);
   const [images, setImages] = useState<MenuItemImageDto[]>([]);
   const [locationOverrides, setLocationOverrides] = useState<LocationMenuOverrideDto[]>([]);
   const [selectedLocationId, setSelectedLocationId] = useState("");
-  const [locationQuery, setLocationQuery] = useState("");
-  const [locationSelectionSource, setLocationSelectionSource] = useState<"stored" | "manual" | null>(null);
+  const [useGlobalMenu, setUseGlobalMenu] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [selectedItemId, setSelectedItemId] = useState("");
   const [form, setForm] = useState<MenuFormState>(emptyCategoryForm());
@@ -299,22 +300,6 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
       ),
     [locationOverrides],
   );
-  const filteredLocations = useMemo(() => {
-    const query = locationQuery.trim().toLowerCase();
-
-    if (!query) {
-      return locations.slice(0, 8);
-    }
-
-    return locations
-      .filter((location) =>
-        [location.name, location.locationCode, location.addressLine1, location.city, location.province]
-          .filter(Boolean)
-          .some((value) => value!.toLowerCase().includes(query)),
-      )
-      .slice(0, 12);
-  }, [locationQuery, locations]);
-
   const selectedLocation = selectedLocationId ? locationById.get(selectedLocationId) ?? null : null;
   const menuMode = canChangeLocation && !selectedLocationId ? "global" : "location";
   const itemForm = form.kind === "item" ? form : null;
@@ -407,6 +392,10 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
   useEffect(() => {
     void loadCatalog();
   }, [loadCatalog]);
+
+  useEffect(() => {
+    setUseGlobalMenu(false);
+  }, [searchParamsKey]);
 
   useEffect(() => {
     if (status !== "ready") {
@@ -540,48 +529,41 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
   }, [selectedLocationId, status]);
 
   useEffect(() => {
-    if (locationSelectionSource !== null || selectedLocationId || locations.length === 0 || canChangeLocation) {
+    if (status !== "ready" || locations.length === 0) {
       return;
     }
 
-    const stored = getStoredLocationContext();
+    if (canChangeLocation && useGlobalMenu) {
+      if (selectedLocationId) {
+        setSelectedLocationId("");
+        setSelectedCategoryId("");
+        setSelectedItemId("");
+        setForm(emptyCategoryForm());
+        setIsFormVisible(false);
+      }
 
-    if (!stored.locationId && !stored.locationCode) {
       return;
     }
 
+    const context = getStoredLocationContext(searchParams);
     const matchedLocation = locations.find(
-      (location) => location.id === stored.locationId || location.locationCode === stored.locationCode,
+      (location) => location.id === context.locationId || location.locationCode === context.locationCode,
     );
+    const nextLocationId = matchedLocation?.id ?? "";
 
-    if (!matchedLocation?.id) {
+    if (nextLocationId === selectedLocationId) {
       return;
     }
 
-    setSelectedLocationId(matchedLocation.id);
-    setLocationQuery(matchedLocation.name);
-    setLocationSelectionSource("stored");
-  }, [canChangeLocation, locationSelectionSource, locations, selectedLocationId]);
-
-  useEffect(() => {
-    if (status !== "ready" || selectedLocationId || locations.length === 0 || canChangeLocation) {
-      return;
-    }
-
-    const stored = getStoredLocationContext();
-
-    if (stored.locationId || stored.locationCode) {
-      return;
-    }
-
-    const firstActiveLocation = locations.find((location) => location.isActive !== false) ?? locations[0];
-
-    if (firstActiveLocation?.id) {
-      setSelectedLocationId(firstActiveLocation.id);
-      setLocationQuery(firstActiveLocation.name);
-      setLocationSelectionSource("manual");
-    }
-  }, [canChangeLocation, locations, selectedLocationId, status]);
+    setSelectedLocationId(nextLocationId);
+    setSelectedCategoryId("");
+    setSelectedItemId("");
+    setForm(nextLocationId ? emptyCategoryForm(nextLocationId) : emptyCategoryForm());
+    setIsFormVisible(false);
+    setMessage(null);
+    setError(null);
+    setDialogError(null);
+  }, [canChangeLocation, locations, searchParams, selectedLocationId, status, useGlobalMenu]);
 
   useEffect(() => {
     if (!selectedCategoryId && tree.length > 0) {
@@ -590,26 +572,9 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     }
   }, [selectedCategoryId, tree]);
 
-  function selectLocation(location: LocationDto) {
-    if (!location.id) {
-      return;
-    }
-
-    setSelectedLocationId(location.id);
-    setLocationQuery(location.name);
-    setLocationSelectionSource("manual");
-    setMessage(null);
-    setError(null);
-    setDialogError(null);
-    setSelectedCategoryId("");
-    setSelectedItemId("");
-    setForm(emptyCategoryForm(location.id));
-    setIsFormVisible(false);
-  }
-
   function clearLocationSelection() {
+    setUseGlobalMenu(true);
     setSelectedLocationId("");
-    setLocationSelectionSource("manual");
     setMessage(null);
     setError(null);
     setDialogError(null);
@@ -617,6 +582,13 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
     setSelectedItemId("");
     setForm(emptyCategoryForm());
     setIsFormVisible(false);
+  }
+
+  function useHeaderLocationSelection() {
+    setUseGlobalMenu(false);
+    setMessage(null);
+    setError(null);
+    setDialogError(null);
   }
 
   function startCreateCategory() {
@@ -1101,6 +1073,12 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
                   Global menu
                 </Button>
               ) : null}
+              {canChangeLocation && !selectedLocationId && useGlobalMenu ? (
+                <Button type="button" variant="outline" onClick={useHeaderLocationSelection}>
+                  <RefreshCw className="h-4 w-4" />
+                  Use header location
+                </Button>
+              ) : null}
               <Button type="button" onClick={startCreateCategory} disabled={!canChangeLocation || Boolean(selectedLocationId)}>
                 <Plus className="h-4 w-4" />
                 Add category
@@ -1117,31 +1095,14 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
           </div>
 
           <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-            <div className="space-y-3">
-              <label className="block text-xs font-semibold uppercase tracking-widest text-slate-500">Search locations</label>
+            <label className="block space-y-2">
+              <span className="block text-xs font-semibold uppercase tracking-widest text-slate-500">Current location</span>
               <input
-                className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-0 transition-colors focus:border-primary"
-                placeholder="Search by name, code, city, or address"
-                value={locationQuery}
-                onChange={(event) => setLocationQuery(event.target.value)}
+                className="h-10 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none"
+                readOnly
+                value={selectedLocation?.name ?? (canChangeLocation ? "Global menu" : "No store selected")}
               />
-              <div className="flex flex-wrap gap-2">
-                {filteredLocations.map((location) => (
-                  <Button
-                    key={location.id}
-                    type="button"
-                    variant={selectedLocationId === location.id ? "default" : "outline"}
-                    className="justify-start"
-                    onClick={() => selectLocation(location)}
-                    disabled={!canChangeLocation}
-                  >
-                    <Store className="h-4 w-4" />
-                    <span className="truncate">{location.name}</span>
-                  </Button>
-                ))}
-              </div>
-            </div>
-
+            </label>
             <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
               {selectedLocation ? (
                 <div className="space-y-1">
@@ -2001,18 +1962,26 @@ function DialogErrorAlert({ message }: { message: string | null }) {
 const inputClass =
   "h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none ring-0 transition-colors placeholder:text-slate-400 focus:border-primary";
 
-function getStoredLocationContext(): MenuLocationContext {
+function getStoredLocationContext(searchParams?: URLSearchParams): MenuLocationContext {
   if (typeof window === "undefined") {
     return { locationId: null, locationCode: null };
   }
 
   return {
     locationId:
+      searchParams?.get("locationId")?.trim() ??
+      searchParams?.get("location")?.trim() ??
+      searchParams?.get("storeId")?.trim() ??
+      searchParams?.get("store")?.trim() ??
       sessionStorage.getItem("umika_location_id") ??
       localStorage.getItem("umika_location_id") ??
       sessionStorage.getItem("location_id") ??
       localStorage.getItem("location_id"),
-    locationCode: sessionStorage.getItem("umika_location_code") ?? localStorage.getItem("umika_location_code"),
+    locationCode:
+      searchParams?.get("locationCode")?.trim() ??
+      searchParams?.get("storeCode")?.trim() ??
+      sessionStorage.getItem("umika_location_code") ??
+      localStorage.getItem("umika_location_code"),
   };
 }
 

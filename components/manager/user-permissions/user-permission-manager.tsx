@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { FormEvent } from "react";
 import { AlertCircle, CheckCircle2, Pencil, RefreshCw, Search, ShieldPlus, Trash2, X } from "lucide-react";
 
@@ -51,13 +52,13 @@ const emptyForm: PermissionFormState = {
 };
 
 export function UserPermissionManager() {
+  const searchParams = useSearchParams();
   const [users, setUsers] = useState<ManagerUserLookupDto[]>([]);
   const [locations, setLocations] = useState<LocationDto[]>([]);
   const [permissionCodes, setPermissionCodes] = useState<PermissionCodeDto[]>([]);
   const [userPermissions, setUserPermissions] = useState<UserPermissionDto[]>([]);
   const [selectedUser, setSelectedUser] = useState<ManagerUserLookupDto | null>(null);
   const [emailQuery, setEmailQuery] = useState("");
-  const [locationQuery, setLocationQuery] = useState("");
   const [form, setForm] = useState<PermissionFormState>(emptyForm);
   const [status, setStatus] = useState<"loading" | "ready" | "unauthenticated" | "error">("loading");
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
@@ -81,21 +82,6 @@ export function UserPermissionManager() {
 
     return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [permissionCodes]);
-  const filteredLocations = useMemo(() => {
-    const query = locationQuery.trim().toLowerCase();
-
-    if (!query) {
-      return locations.slice(0, 8);
-    }
-
-    return locations
-      .filter((location) =>
-        [location.name, location.locationCode, location.addressLine1, location.city, location.province]
-          .filter(Boolean)
-          .some((value) => value!.toLowerCase().includes(query)),
-      )
-      .slice(0, 12);
-  }, [locationQuery, locations]);
   const selectedLocation = form.locationId ? locationById.get(form.locationId) ?? null : null;
   const selectedPermissionCode = form.permissionCode ? permissionCodeByCode.get(form.permissionCode) ?? null : null;
   const selectedUserPermissions = selectedUser?.id ? userPermissions.filter((item) => item.userId === selectedUser.id) : [];
@@ -181,6 +167,22 @@ export function UserPermissionManager() {
     void loadUserPermissions();
   }, [loadCatalog, loadUserPermissions]);
 
+  useEffect(() => {
+    if (locations.length === 0 || form.id) {
+      return;
+    }
+
+    const context = getStoredLocationContext(searchParams);
+    const matchedLocation = locations.find(
+      (location) => location.id === context.locationId || location.locationCode === context.locationCode,
+    );
+    const nextLocationId = matchedLocation?.id ?? "";
+
+    if (nextLocationId !== form.locationId) {
+      setForm((current) => ({ ...current, locationId: nextLocationId }));
+    }
+  }, [form.id, form.locationId, locations, searchParams]);
+
   async function searchUsers(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
 
@@ -243,28 +245,19 @@ export function UserPermissionManager() {
     void loadUserPermissions(user.id);
   }
 
-  function selectLocation(location: LocationDto) {
-    setForm((current) => ({ ...current, locationId: location.id ?? "" }));
-    setLocationQuery(location.name);
-  }
-
   function startEdit(permission: UserPermissionDto) {
-    const location = permission.locationId ? locationById.get(permission.locationId) : null;
-
     setForm({
       id: permission.id ?? "",
       permissionCode: permission.permissionCode,
       locationId: permission.locationId ?? "",
       isGranted: permission.isGranted,
     });
-    setLocationQuery(location?.name ?? "");
     setMessage(null);
     setError(null);
   }
 
   function resetForm() {
     setForm(emptyForm);
-    setLocationQuery("");
     setMessage(null);
     setError(null);
   }
@@ -491,46 +484,18 @@ export function UserPermissionManager() {
 
                 <Field label="Store/location">
                   <input
-                    className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                    onChange={(event) => {
-                      setLocationQuery(event.target.value);
-                      setForm((current) => ({ ...current, locationId: "" }));
-                    }}
-                    placeholder="Search by store name, code, city, or address"
-                    value={locationQuery}
+                    className="h-10 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700 outline-none"
+                    readOnly
+                    value={selectedLocation?.name ?? "Global permission"}
                   />
                   {selectedLocation ? (
                     <div className="mt-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
                       <p className="font-semibold text-slate-950">{selectedLocation.name}</p>
                       <p className="mt-1 truncate text-xs text-slate-500">{selectedLocation.locationCode ?? selectedLocation.id}</p>
                     </div>
-                  ) : null}
-                  <div className="mt-2 max-h-48 space-y-1 overflow-y-auto">
-                    {filteredLocations.map((location) => (
-                      <button
-                        className="block w-full rounded-md border border-slate-200 px-3 py-2 text-left text-sm hover:bg-slate-50"
-                        key={location.id ?? location.name}
-                        onClick={() => selectLocation(location)}
-                        type="button"
-                      >
-                        <span className="block font-semibold text-slate-950">{location.name}</span>
-                        <span className="mt-1 block truncate text-xs text-slate-500">
-                          {[location.locationCode, location.addressLine1, location.city].filter(Boolean).join(" / ")}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  <Button
-                    className="mt-2"
-                    onClick={() => {
-                      setForm((current) => ({ ...current, locationId: "" }));
-                      setLocationQuery("");
-                    }}
-                    type="button"
-                    variant="outline"
-                  >
-                    Use global permission
-                  </Button>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-500">Change the active store from the manager header.</p>
+                  )}
                 </Field>
 
                 <label className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">
@@ -705,6 +670,25 @@ function normalizePermissionCode(permission: PermissionCodeDto): PermissionCodeD
 
 function getUserDisplayName(user: ManagerUserLookupDto) {
   return user.name || [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email;
+}
+
+function getStoredLocationContext(searchParams?: URLSearchParams) {
+  return {
+    locationId:
+      searchParams?.get("locationId")?.trim() ??
+      searchParams?.get("location")?.trim() ??
+      searchParams?.get("storeId")?.trim() ??
+      searchParams?.get("store")?.trim() ??
+      sessionStorage.getItem("umika_location_id") ??
+      sessionStorage.getItem("location_id") ??
+      localStorage.getItem("umika_location_id") ??
+      localStorage.getItem("location_id"),
+    locationCode:
+      searchParams?.get("locationCode")?.trim() ??
+      searchParams?.get("storeCode")?.trim() ??
+      sessionStorage.getItem("umika_location_code") ??
+      localStorage.getItem("umika_location_code"),
+  };
 }
 
 function Field({

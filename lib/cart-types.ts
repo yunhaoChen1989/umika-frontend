@@ -83,6 +83,20 @@ export type CheckoutResponse = {
   [key: string]: unknown;
 };
 
+export type StripePaymentIntentResponse = {
+  clientSecret?: string | null;
+  client_secret?: string | null;
+  paymentIntentId?: string | null;
+  payment_intent_id?: string | null;
+  id?: string | null;
+  publishableKey?: string | null;
+  publishable_key?: string | null;
+  status?: string | null;
+  amount?: number | null;
+  currency?: string | null;
+  [key: string]: unknown;
+};
+
 export type BackendMenuItem = {
   id: string;
   categoryId: string | null;

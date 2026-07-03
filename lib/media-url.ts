@@ -1,30 +1,49 @@
-const backendBaseUrl = (
-  process.env.BACKEND_API_BASE_URL ??
-  process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "http://localhost:8080/api/v1"
-).replace(/\/$/, "");
-
 const backendOrigin = (() => {
+  const configuredUrl =
+    process.env.NEXT_PUBLIC_BACKEND_ORIGIN ??
+    process.env.NEXT_PUBLIC_API_BASE_URL ??
+    process.env.BACKEND_API_BASE_URL ??
+    process.env.MANAGER_API_BASE_URL;
+
   try {
-    const url = new URL(backendBaseUrl);
-    return url.origin;
+    if (configuredUrl) {
+      return new URL(configuredUrl.replace(/\/$/, "")).origin;
+    }
   } catch {
-    return "http://localhost:8080";
+    // Fall through to runtime defaults.
   }
+
+  if (typeof window !== "undefined") {
+    const { protocol, hostname, origin } = window.location;
+
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return `${protocol}//${hostname}:8080`;
+    }
+
+    return origin;
+  }
+
+  return "http://localhost:8080";
 })();
 
 export function resolveBackendMediaUrl(value?: string | null) {
-  if (!value) {
+  const rawValue = value?.trim();
+
+  if (!rawValue) {
     return "";
   }
 
-  if (/^https?:\/\//i.test(value) || value.startsWith("data:")) {
-    return value;
+  if (/^https?:\/\//i.test(rawValue) || rawValue.startsWith("data:") || rawValue.startsWith("blob:")) {
+    return rawValue;
   }
 
-  if (value.startsWith("/")) {
-    return `${backendOrigin}${value}`;
+  const mediaPath = rawValue
+    .replace(/^\/?api\/v\d+\//i, "")
+    .replace(/^\/+/, "");
+
+  if (!mediaPath) {
+    return "";
   }
 
-  return `${backendOrigin}/${value.replace(/^\/+/, "")}`;
+  return `${backendOrigin}/${mediaPath}`;
 }

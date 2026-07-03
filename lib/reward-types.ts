@@ -11,6 +11,8 @@ export type RewardSummaryResponse = {
   maxRedemptionPercent?: number | null;
   minRedeemPoints?: number | null;
   minimumRedeemPoints?: number | null;
+  redeemablePoints?: number | null;
+  redeemableAmount?: number | null;
   nextRewardPoints?: number | null;
   nextRewardAmount?: number | null;
   birthdayBonusPoints?: number | null;

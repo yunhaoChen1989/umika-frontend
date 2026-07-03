@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { Bell, ChevronRight, LogOut, Search, ShieldCheck } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Bell, ChevronRight, LogOut, MapPin, Search, ShieldCheck, UserRound } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { ManagerIcon } from "@/components/manager/manager-icon";
@@ -14,6 +14,20 @@ import { getLoginRedirectHref } from "@/lib/auth-redirect";
 import { getDictionary, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { ManagerMenu } from "@/lib/manager-types";
+import type { LocationDto } from "@/lib/location-types";
+
+type CurrentAccountProfile = {
+  email?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  name?: string | null;
+  role?: string | null;
+  roles?: string[] | null;
+};
+
+type ManagerLocation = LocationDto & {
+  locationId?: string | null;
+};
 
 export function ManagerShell({
   children,
@@ -26,13 +40,194 @@ export function ManagerShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const dict = getDictionary(locale);
   const activeBranchCodes = useMemo(() => getActiveBranchCodes(menus, pathname), [menus, pathname]);
   const [expandedCodes, setExpandedCodes] = useState<Set<string>>(() => new Set(activeBranchCodes));
+  const [accountName, setAccountName] = useState<string | null>(null);
+  const [roleLabel, setRoleLabel] = useState<string | null>(null);
+  const [location, setLocation] = useState<ManagerLocation | null>(null);
+  const [locations, setLocations] = useState<ManagerLocation[]>([]);
 
   useEffect(() => {
     setExpandedCodes((current) => new Set([...current, ...activeBranchCodes]));
   }, [activeBranchCodes]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadProfile() {
+      const token = localStorage.getItem("umika_access_token");
+
+      if (!token) {
+        setAccountName(null);
+        setRoleLabel(null);
+        return;
+      }
+
+      const response = await fetch("/api/me/profile", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+      }).catch(() => null);
+
+      if (!active) {
+        return;
+      }
+
+      if (!response?.ok) {
+        setAccountName(null);
+        setRoleLabel(null);
+        return;
+      }
+
+      const profile = (await response.json().catch(() => null)) as CurrentAccountProfile | null;
+      setAccountName(resolveAccountName(profile));
+      setRoleLabel(resolveRoleLabel(profile));
+    }
+
+    function refreshProfile() {
+      void loadProfile();
+    }
+
+    function refreshProfileFromStorage(event: StorageEvent) {
+      if (event.key === "umika_access_token") {
+        refreshProfile();
+      }
+    }
+
+    void loadProfile();
+    window.addEventListener("umika-auth-changed", refreshProfile);
+    window.addEventListener("focus", refreshProfile);
+    window.addEventListener("storage", refreshProfileFromStorage);
+
+    return () => {
+      active = false;
+      window.removeEventListener("umika-auth-changed", refreshProfile);
+      window.removeEventListener("focus", refreshProfile);
+      window.removeEventListener("storage", refreshProfileFromStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadLocations() {
+      const token = localStorage.getItem("umika_access_token");
+
+      if (!token) {
+        setLocations([]);
+        setLocation(null);
+        return;
+      }
+
+      const response = await fetch("/api/manager/locations?page=0&size=300&sort=name,asc", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+      }).catch(() => null);
+
+      if (!active) {
+        return;
+      }
+
+      if (!response?.ok) {
+        setLocations([]);
+        await loadDefaultLocation();
+        return;
+      }
+
+      const payload = (await response.json().catch(() => null)) as { content?: ManagerLocation[] } | ManagerLocation[] | null;
+      const nextLocations = (Array.isArray(payload) ? payload : payload?.content ?? []).filter((option) => option.isActive !== false);
+      setLocations(nextLocations);
+
+      const context = getLocationContext(searchParams);
+      const matchedLocation = nextLocations.find((option) => {
+        const id = option.id ?? option.locationId;
+        return id === context.locationId || option.locationCode === context.locationCode;
+      });
+
+      if (matchedLocation) {
+        setLocation(matchedLocation);
+        storeLocationContext(matchedLocation);
+        return;
+      }
+
+      await loadDefaultLocation(nextLocations);
+    }
+
+    async function loadDefaultLocation(options: ManagerLocation[] = []) {
+      const response = await fetch("/api/me/default-location", {
+        method: "GET",
+        cache: "no-store",
+      }).catch(() => null);
+
+      if (!active || !response?.ok) {
+        if (active) {
+          setLocation(null);
+        }
+        return;
+      }
+
+      const defaultLocation = (await response.json().catch(() => null)) as ManagerLocation | null;
+      const matchedLocation =
+        options.find((option) => option.id === defaultLocation?.id || option.id === defaultLocation?.locationId || option.locationCode === defaultLocation?.locationCode) ??
+        defaultLocation;
+
+      if (matchedLocation) {
+        setLocation(matchedLocation);
+        storeLocationContext(matchedLocation);
+      }
+    }
+
+    void loadLocations();
+
+    return () => {
+      active = false;
+    };
+  }, [searchParams]);
+
+  function changeLocation(value: string) {
+    const [kind, rawValue] = value.split(":", 2);
+
+    if (!rawValue) {
+      return;
+    }
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete("location");
+    nextParams.delete("storeId");
+    nextParams.delete("store");
+    nextParams.delete("storeCode");
+    nextParams.delete("locationId");
+    nextParams.delete("locationCode");
+
+    if (kind === "code") {
+      nextParams.set("locationCode", rawValue);
+      storeLocationCode(rawValue);
+      clearStoredLocationId();
+    } else {
+      nextParams.set("locationId", rawValue);
+      storeLocationIdOnly(rawValue);
+      clearStoredLocationCode();
+    }
+
+    const selected = locations.find((option) => {
+      const id = option.id ?? option.locationId;
+      return kind === "code" ? option.locationCode === rawValue : id === rawValue;
+    });
+
+    if (selected) {
+      setLocation(selected);
+    }
+
+    const query = nextParams.toString();
+    router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
 
   function toggleExpanded(code: string) {
     setExpandedCodes((current) => {
@@ -64,6 +259,20 @@ export function ManagerShell({
     router.replace(getLoginRedirectHref(redirectPath));
     router.refresh();
   }
+
+  const selectedLocationValue = location?.locationCode
+    ? `code:${location.locationCode}`
+    : location?.id
+      ? `id:${location.id}`
+      : location?.locationId
+        ? `id:${location.locationId}`
+        : "";
+  const locationOptions =
+    locations.length > 0
+      ? locations
+      : location
+        ? [location]
+        : [];
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
@@ -112,7 +321,7 @@ export function ManagerShell({
               </Link>
               <Badge className="hidden rounded-md border-emerald-200 bg-emerald-50 text-emerald-800 sm:inline-flex">
                 <ShieldCheck className="mr-1 h-3.5 w-3.5" />
-                {dict.manager.role}
+                {roleLabel ?? "Manager"}
               </Badge>
               <div className="hidden min-w-72 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500 md:flex">
                 <Search className="h-4 w-4" />
@@ -120,10 +329,42 @@ export function ManagerShell({
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <label className="hidden min-w-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-950 shadow-sm md:flex">
+                <MapPin className="h-4 w-4 shrink-0 text-primary" />
+                <select
+                  aria-label="Manager location"
+                  className="h-8 max-w-40 bg-white text-sm font-bold text-slate-950 outline-none lg:max-w-56"
+                  disabled={locationOptions.length === 0}
+                  value={selectedLocationValue}
+                  onChange={(event) => changeLocation(event.target.value)}
+                >
+                  {selectedLocationValue ? null : <option value="">Location</option>}
+                  {locationOptions.map((option) => {
+                    const id = option.id ?? option.locationId;
+                    const value = option.locationCode ? `code:${option.locationCode}` : id ? `id:${id}` : "";
+
+                    if (!value) {
+                      return null;
+                    }
+
+                    return (
+                      <option className="bg-white text-base font-semibold text-slate-950" key={value} value={value}>
+                        {option.name}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
               <LanguageSwitcher locale={locale} label={dict.common.language} />
               <Button variant="outline" size="icon" aria-label="Notifications">
                 <Bell className="h-4 w-4" />
               </Button>
+              <div className="hidden min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-700 xl:flex">
+                <UserRound className="h-4 w-4 text-primary" />
+                <span className="max-w-36 truncate font-semibold" title={accountName ?? undefined}>
+                  {accountName ?? "User"}
+                </span>
+              </div>
               <Button onClick={() => void signOut()} variant="outline" size="sm" className="hidden sm:inline-flex" type="button">
                 <LogOut className="h-4 w-4" />
                 {dict.manager.signOut}
@@ -302,4 +543,92 @@ function getActiveBranchCodes(menus: ManagerMenu[], pathname: string): string[] 
   }
 
   return activeCodes;
+}
+
+function resolveAccountName(profile: CurrentAccountProfile | null) {
+  const fullName = [profile?.firstName, profile?.lastName]
+    .map((value) => value?.trim())
+    .filter(Boolean)
+    .join(" ");
+
+  return profile?.name?.trim() || fullName || profile?.email?.trim() || null;
+}
+
+function resolveRoleLabel(profile: CurrentAccountProfile | null) {
+  const role = [...(profile?.roles ?? []), profile?.role]
+    .filter((value): value is string => Boolean(value))
+    .find(Boolean);
+
+  if (!role) {
+    return null;
+  }
+
+  return role
+    .replace(/^ROLE_/i, "")
+    .toLowerCase()
+    .replace(/(^|_)([a-z])/g, (_match, prefix: string, letter: string) => `${prefix ? " " : ""}${letter.toUpperCase()}`);
+}
+
+function getLocationContext(searchParams: URLSearchParams) {
+  return {
+    locationId:
+      searchParams.get("locationId")?.trim() ??
+      searchParams.get("location")?.trim() ??
+      searchParams.get("storeId")?.trim() ??
+      searchParams.get("store")?.trim() ??
+      sessionStorage.getItem("umika_location_id") ??
+      sessionStorage.getItem("location_id") ??
+      localStorage.getItem("umika_location_id") ??
+      localStorage.getItem("location_id"),
+    locationCode:
+      searchParams.get("locationCode")?.trim() ??
+      searchParams.get("storeCode")?.trim() ??
+      sessionStorage.getItem("umika_location_code") ??
+      localStorage.getItem("umika_location_code"),
+  };
+}
+
+function storeLocationContext(location: ManagerLocation) {
+  const id = location.id ?? location.locationId;
+
+  if (location.locationCode) {
+    storeLocationCode(location.locationCode);
+  }
+
+  if (id) {
+    storeLocationIdOnly(id);
+  }
+
+  if (location.locationCode && id) {
+    sessionStorage.setItem("umika_location_id_code", location.locationCode);
+    localStorage.setItem("umika_location_id_code", location.locationCode);
+  }
+}
+
+function storeLocationCode(locationCode: string) {
+  sessionStorage.setItem("umika_location_code", locationCode);
+  localStorage.setItem("umika_location_code", locationCode);
+}
+
+function storeLocationIdOnly(locationId: string) {
+  sessionStorage.setItem("umika_location_id", locationId);
+  localStorage.setItem("umika_location_id", locationId);
+  sessionStorage.setItem("location_id", locationId);
+  localStorage.setItem("location_id", locationId);
+}
+
+function clearStoredLocationCode() {
+  sessionStorage.removeItem("umika_location_code");
+  localStorage.removeItem("umika_location_code");
+  sessionStorage.removeItem("umika_location_id_code");
+  localStorage.removeItem("umika_location_id_code");
+}
+
+function clearStoredLocationId() {
+  sessionStorage.removeItem("umika_location_id");
+  localStorage.removeItem("umika_location_id");
+  sessionStorage.removeItem("location_id");
+  localStorage.removeItem("location_id");
+  sessionStorage.removeItem("umika_location_id_code");
+  localStorage.removeItem("umika_location_id_code");
 }
