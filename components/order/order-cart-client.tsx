@@ -5,22 +5,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CreditCard, Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
-import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
-import { loadStripe, type Stripe } from "@stripe/stripe-js";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { StripePaymentSection } from "@/components/order/stripe-payment-section";
 import { cartIdKeyPrefix, getAuthHeaders, getOrCreateGuestSessionId, loadOrCreateCart, normalizeCart, normalizePayload, notifyCartChanged } from "@/lib/cart-client";
-import type { CartResponse, CheckoutResponse, RedemptionPreviewResponse, StripePaymentIntentResponse } from "@/lib/cart-types";
+import type { CartResponse, CheckoutResponse, RedemptionPreviewResponse } from "@/lib/cart-types";
 import type { Dictionary } from "@/lib/i18n";
 import { resolveBackendMediaUrl } from "@/lib/media-url";
 import { flattenMenuCatalog, type ResolvedMenuItem } from "@/lib/menu-catalog";
 import type { MenuCatalogResponse } from "@/lib/menu-management-types";
-
-const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
-const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : null;
 
 export function OrderCartClient({ copy }: { copy: Dictionary }) {
   const searchParams = useSearchParams();
@@ -600,180 +596,6 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
   );
 }
 
-function StripePaymentSection({ order, copy }: { order: CheckoutResponse; copy: Dictionary }) {
-  const orderId = order.id ?? order.orderId;
-  const [paymentIntent, setPaymentIntent] = useState<StripePaymentIntentResponse | null>(null);
-  const [status, setStatus] = useState<"idle" | "loading" | "ready" | "paid" | "error">("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [dynamicStripePromise, setDynamicStripePromise] = useState<Promise<Stripe | null> | null>(stripePromise);
-
-  useEffect(() => {
-    let active = true;
-
-    async function createPaymentIntent() {
-      if (!orderId) {
-        setStatus("error");
-        setError(copy.orderPage.paymentIntentError);
-        return;
-      }
-
-      setStatus("loading");
-      setError(null);
-
-      const headers = getAuthHeaders();
-      headers.set("Content-Type", "application/json");
-
-      const response = await fetch("/api/payments/stripe/payment-intent", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ orderId }),
-        cache: "no-store",
-      }).catch(() => null);
-
-      if (!active) {
-        return;
-      }
-
-      if (!response?.ok) {
-        const body = response ? await response.json().catch(() => null) : null;
-        setStatus("error");
-        setError(resolveErrorMessage(body, copy.orderPage.paymentIntentError));
-        return;
-      }
-
-      const intent = normalizePayload<StripePaymentIntentResponse>(await response.json().catch(() => null));
-      const publishableKey = firstString(intent?.publishableKey, intent?.publishable_key);
-
-      if (publishableKey && !stripePublishableKey) {
-        setDynamicStripePromise(loadStripe(publishableKey));
-      }
-
-      setPaymentIntent(intent);
-      setStatus("ready");
-    }
-
-    void createPaymentIntent();
-
-    return () => {
-      active = false;
-    };
-  }, [copy.orderPage.paymentIntentError, orderId]);
-
-  const clientSecret = firstString(paymentIntent?.clientSecret, paymentIntent?.client_secret);
-
-  if (status === "loading" || status === "idle") {
-    return <p className="mt-5 text-sm text-muted-foreground">{copy.orderPage.paymentLoading}</p>;
-  }
-
-  if (status === "paid") {
-    return (
-      <div className="mt-5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
-        {copy.orderPage.paymentSuccess}
-      </div>
-    );
-  }
-
-  if (status === "error" || !clientSecret || !dynamicStripePromise) {
-    return (
-      <div className="mt-5 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-3 text-sm text-destructive">
-        {error ?? (!dynamicStripePromise ? copy.orderPage.stripeConfigMissing : copy.orderPage.paymentIntentError)}
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-5 rounded-md border bg-background p-3">
-      <p className="text-sm font-semibold">{copy.orderPage.paymentTitle}</p>
-      <Elements stripe={dynamicStripePromise} options={{ clientSecret }}>
-        <StripeCheckoutForm
-          copy={copy}
-          orderId={orderId ?? ""}
-          paymentIntentId={firstString(paymentIntent?.paymentIntentId, paymentIntent?.payment_intent_id, paymentIntent?.id)}
-          onPaid={() => setStatus("paid")}
-          onError={setError}
-        />
-      </Elements>
-      {error ? (
-        <p className="mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function StripeCheckoutForm({
-  copy,
-  orderId,
-  paymentIntentId,
-  onPaid,
-  onError,
-}: {
-  copy: Dictionary;
-  orderId: string;
-  paymentIntentId?: string;
-  onPaid: () => void;
-  onError: (message: string | null) => void;
-}) {
-  const stripe = useStripe();
-  const elements = useElements();
-  const [isPaying, setIsPaying] = useState(false);
-
-  async function pay() {
-    if (!stripe || !elements) {
-      return;
-    }
-
-    setIsPaying(true);
-    onError(null);
-
-    const result = await stripe.confirmPayment({
-      elements,
-      redirect: "if_required",
-    });
-
-    if (result.error) {
-      setIsPaying(false);
-      onError(result.error.message ?? copy.orderPage.paymentError);
-      return;
-    }
-
-    const stripePaymentIntentId = result.paymentIntent?.id ?? paymentIntentId;
-    const headers = getAuthHeaders();
-    headers.set("Content-Type", "application/json");
-
-    const response = await fetch("/api/payments/stripe/confirm", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        orderId,
-        paymentIntentId: stripePaymentIntentId,
-      }),
-      cache: "no-store",
-    }).catch(() => null);
-
-    setIsPaying(false);
-
-    if (!response?.ok) {
-      const body = response ? await response.json().catch(() => null) : null;
-      onError(resolveErrorMessage(body, copy.orderPage.paymentConfirmError));
-      return;
-    }
-
-    onPaid();
-  }
-
-  return (
-    <div className="mt-4 space-y-4">
-      <PaymentElement />
-      <Button className="w-full" disabled={!stripe || !elements || isPaying} onClick={() => void pay()} type="button">
-        <CreditCard className="h-4 w-4" />
-        {isPaying ? copy.orderPage.paymentProcessing : copy.orderPage.payNow}
-      </Button>
-    </div>
-  );
-}
-
 function PreviewRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between">
@@ -881,14 +703,4 @@ function calculateTipAmount(subtotal: number, tipMode: "0" | "10" | "15" | "18" 
 
 function roundMoney(value: number) {
   return Number.isFinite(value) ? Math.round(Math.max(0, value) * 100) / 100 : 0;
-}
-
-function firstString(...values: unknown[]) {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
-  }
-
-  return undefined;
 }

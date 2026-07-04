@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { ClipboardList } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
+import { StripePaymentSection } from "@/components/order/stripe-payment-section";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { CheckoutResponse } from "@/lib/cart-types";
+import type { Dictionary } from "@/lib/i18n";
 
 type SpringPage<T> = {
   content?: T[];
@@ -28,7 +30,7 @@ type OrderHistoryCopy = {
   login: string;
 };
 
-export function OrderHistoryPanel({ copy }: { copy: OrderHistoryCopy }) {
+export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCopy; paymentCopy: Dictionary }) {
   const [orders, setOrders] = useState<CheckoutResponse[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "unauthenticated" | "error">("loading");
 
@@ -128,6 +130,21 @@ export function OrderHistoryPanel({ copy }: { copy: OrderHistoryCopy }) {
                     </div>
                   </div>
                 ) : null}
+                {isPayableOrder(order) ? (
+                  <StripePaymentSection
+                    order={order}
+                    copy={paymentCopy}
+                    onPaid={() => {
+                      setOrders((currentOrders) =>
+                        currentOrders.map((currentOrder) =>
+                          (currentOrder.id ?? currentOrder.orderId) === (order.id ?? order.orderId)
+                            ? { ...currentOrder, status: "PAID" }
+                            : currentOrder,
+                        ),
+                      );
+                    }}
+                  />
+                ) : null}
               </CardContent>
             </Card>
           ))}
@@ -135,6 +152,10 @@ export function OrderHistoryPanel({ copy }: { copy: OrderHistoryCopy }) {
       ) : null}
     </section>
   );
+}
+
+function isPayableOrder(order: CheckoutResponse) {
+  return (order.status ?? "").toUpperCase() === "PENDING";
 }
 
 function Info({ label, value }: { label: string; value: string }) {
