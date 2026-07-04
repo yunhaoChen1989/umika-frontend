@@ -8,6 +8,7 @@ import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { CheckoutOrderItemResponse, CheckoutResponse } from "@/lib/cart-types";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +36,7 @@ const statusClasses: Record<string, string> = {
 export function OrderManager() {
   const [orders, setOrders] = useState<CheckoutResponse[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState("");
+  const [detailOrderId, setDetailOrderId] = useState("");
   const [emailQuery, setEmailQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [statusDrafts, setStatusDrafts] = useState<Record<string, OrderStatus>>({});
@@ -47,6 +49,10 @@ export function OrderManager() {
   const selectedOrder = useMemo(
     () => orders.find((order) => getOrderId(order) === selectedOrderId) ?? orders[0] ?? null,
     [orders, selectedOrderId],
+  );
+  const detailOrder = useMemo(
+    () => orders.find((order) => getOrderId(order) === detailOrderId) ?? null,
+    [orders, detailOrderId],
   );
 
   async function searchOrders(event?: FormEvent<HTMLFormElement>) {
@@ -83,6 +89,7 @@ export function OrderManager() {
       const body = response ? await response.json().catch(() => null) : null;
       setOrders([]);
       setSelectedOrderId("");
+      setDetailOrderId("");
       setStatus(response?.status === 401 || response?.status === 403 ? "unauthenticated" : "error");
       setError(getApiErrorMessage(body, "Unable to load orders. Your account may not have permission for this search."));
       return;
@@ -93,6 +100,7 @@ export function OrderManager() {
 
     setOrders(loadedOrders);
     setSelectedOrderId(getOrderId(loadedOrders[0]) ?? "");
+    setDetailOrderId("");
     setStatusDrafts(
       Object.fromEntries(
         loadedOrders
@@ -243,7 +251,10 @@ export function OrderManager() {
                         isSelected && "bg-primary/5",
                       )}
                       key={orderId || order.orderNumber || Math.random()}
-                      onClick={() => setSelectedOrderId(orderId)}
+                      onClick={() => {
+                        setSelectedOrderId(orderId);
+                        setDetailOrderId(orderId);
+                      }}
                       type="button"
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -289,6 +300,9 @@ export function OrderManager() {
                   <SummaryTile label="Subtotal" value={formatMoney(selectedOrder.subtotal)} />
                   <SummaryTile label="Final total" value={formatMoney(selectedOrder.finalTotal ?? selectedOrder.total)} />
                 </div>
+                <Button type="button" variant="outline" onClick={() => setDetailOrderId(getOrderId(selectedOrder))}>
+                  View details
+                </Button>
 
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   <SummaryTile label="Discount" value={formatMoney(selectedOrder.totalDiscount)} />
@@ -354,7 +368,77 @@ export function OrderManager() {
           </CardContent>
         </Card>
       </div>
+      <ManagerOrderDetailsDialog
+        order={detailOrder}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDetailOrderId("");
+          }
+        }}
+      />
     </div>
+  );
+}
+
+function ManagerOrderDetailsDialog({
+  order,
+  onOpenChange,
+}: {
+  order: CheckoutResponse | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const items = order?.items ?? [];
+  const orderId = order ? getOrderId(order) : "";
+
+  return (
+    <Dialog open={Boolean(order)} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[min(96vw,56rem)]">
+        {order ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>{order.orderNumber ?? orderId}</DialogTitle>
+              <DialogDescription>
+                {formatDateTime(order.createdAt)} · {formatOrderType(order.orderType)}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-5 p-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge status={order.status ?? "PENDING"} />
+                <span className="text-sm text-slate-500">Backend order snapshot</span>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <SummaryTile label="Order number" value={order.orderNumber ?? orderId ?? "Unknown"} />
+                <SummaryTile label="Type" value={formatOrderType(order.orderType)} />
+                <SummaryTile label="Subtotal" value={formatMoney(order.subtotal)} />
+                <SummaryTile label="Final total" value={formatMoney(order.finalTotal ?? order.total)} />
+                <SummaryTile label="Discount" value={formatMoney(order.totalDiscount)} />
+                <SummaryTile label="Reward discount" value={formatMoney(order.rewardDiscountAmount)} />
+                <SummaryTile label="Tax" value={`${formatMoney(order.taxAmount ?? order.tax)} / ${formatPercent(order.taxRate)}`} />
+                <SummaryTile label="Points" value={`${order.pointsRedeemed ?? 0} redeemed / ${order.pointsEarned ?? 0} earned`} />
+              </div>
+
+              <div className="rounded-md border border-slate-200">
+                <div className="border-b border-slate-200 bg-slate-100 px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Items</div>
+                <div className="divide-y divide-slate-200">
+                  {items.map((item, index) => (
+                    <OrderItemRow item={item} key={item.id ?? `${item.menuItemId}-${index}`} />
+                  ))}
+                  {items.length === 0 ? <div className="p-4 text-sm text-slate-500">No item snapshots returned.</div> : null}
+                </div>
+              </div>
+
+              {order.customerNote ? (
+                <div className="rounded-md border border-slate-200 p-4">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Customer note</p>
+                  <p className="mt-2 text-sm text-slate-700">{order.customerNote}</p>
+                </div>
+              ) : null}
+            </div>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }
 

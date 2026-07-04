@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CreditCard, RefreshCw } from "lucide-react";
+import { CreditCard, RefreshCw, X } from "lucide-react";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 
@@ -13,14 +13,26 @@ import type { Dictionary } from "@/lib/i18n";
 const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "";
 const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : null;
 
+type ConfirmBackendPaymentResult =
+  | {
+      ok: true;
+      order?: CheckoutResponse | null;
+    }
+  | {
+      ok: false;
+      message?: string;
+    };
+
 export function StripePaymentSection({
   order,
   copy,
   onPaid,
+  onClose,
 }: {
   order: CheckoutResponse;
   copy: Dictionary;
-  onPaid?: () => void;
+  onPaid?: (paidOrder?: CheckoutResponse) => void;
+  onClose?: () => void;
 }) {
   const orderId = order.id ?? order.orderId;
   const [paymentIntent, setPaymentIntent] = useState<StripePaymentIntentResponse | null>(null);
@@ -28,9 +40,36 @@ export function StripePaymentSection({
   const [error, setError] = useState<string | null>(null);
   const [dynamicStripePromise, setDynamicStripePromise] = useState<Promise<Stripe | null> | null>(stripePromise);
   const isCreatingIntentRef = useRef(false);
+  const onPaidRef = useRef(onPaid);
+  const orderRef = useRef(order);
+  const statusRef = useRef(status);
+
+  useEffect(() => {
+    onPaidRef.current = onPaid;
+  }, [onPaid]);
+
+  useEffect(() => {
+    orderRef.current = order;
+  }, [order]);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+
+  const completePaidState = useCallback(async (confirmed?: ConfirmBackendPaymentResult) => {
+    setStatus("paid");
+    setError(null);
+
+    const paidOrder = confirmed?.ok ? confirmed.order ?? await fetchPaidOrderSnapshot(orderRef.current) : null;
+    onPaidRef.current?.(paidOrder ?? { ...orderRef.current, status: "PAID" });
+  }, []);
 
   const createPaymentIntent = useCallback(async () => {
-    if (isCreatingIntentRef.current) {
+    if (isCreatingIntentRef.current || statusRef.current === "paid" || isPaidOrderStatus(order.status)) {
+      if (isPaidOrderStatus(order.status)) {
+        setStatus("paid");
+        setError(null);
+      }
       return;
     }
 
@@ -44,55 +83,71 @@ export function StripePaymentSection({
     setStatus("loading");
     setError(null);
 
-    const headers = getAuthHeaders();
-    headers.set("Content-Type", "application/json");
+    try {
+      const headers = getAuthHeaders();
+      headers.set("Content-Type", "application/json");
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 12000);
 
-    const response = await fetch("/api/payments/stripe/payment-intent", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ orderId }),
-      cache: "no-store",
-    }).catch(() => null);
+      const response = await fetch("/api/payments/stripe/payment-intent", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ orderId }),
+        cache: "no-store",
+        signal: controller.signal,
+      }).catch(() => null);
+      window.clearTimeout(timeout);
 
-    if (!response?.ok) {
-      const body = response ? await response.json().catch(() => null) : null;
-      isCreatingIntentRef.current = false;
-      setStatus("error");
-      setError(resolveErrorMessage(body, copy.orderPage.paymentIntentError));
-      return;
-    }
-
-    const intent = normalizePayload<StripePaymentIntentResponse>(await response.json().catch(() => null));
-    const publishableKey = firstString(intent?.publishableKey, intent?.publishable_key);
-
-    if (publishableKey && !stripePublishableKey) {
-      setDynamicStripePromise(loadStripe(publishableKey));
-    }
-
-    setPaymentIntent(intent);
-    if (isSucceededStatus(intent?.status)) {
-      const confirmed = await confirmBackendPayment(orderId, firstString(intent?.paymentIntentId, intent?.payment_intent_id, intent?.id), copy.orderPage.paymentConfirmError);
-
-      if (!confirmed.ok) {
-        isCreatingIntentRef.current = false;
+      if (!response?.ok) {
+        const body = response ? await response.json().catch(() => null) : null;
         setStatus("error");
-        setError(confirmed.message ?? copy.orderPage.paymentConfirmError);
+        setError(resolveErrorMessage(body, copy.orderPage.paymentIntentError));
         return;
       }
 
+      const intent = normalizePayload<StripePaymentIntentResponse>(await response.json().catch(() => null));
+      const clientSecret = firstString(intent?.clientSecret, intent?.client_secret);
+      const publishableKey = firstString(intent?.publishableKey, intent?.publishable_key);
+
+      if (publishableKey && !stripePublishableKey) {
+        setDynamicStripePromise(loadStripe(publishableKey));
+      }
+
+      setPaymentIntent(intent);
+      if (isSucceededStatus(intent?.status)) {
+        const confirmed = await confirmBackendPayment(orderId, firstString(intent?.paymentIntentId, intent?.payment_intent_id, intent?.id), copy.orderPage.paymentConfirmError);
+
+        if (!confirmed.ok) {
+          setStatus("error");
+          setError(confirmed.message ?? copy.orderPage.paymentConfirmError);
+          return;
+        }
+
+        await completePaidState(confirmed);
+        return;
+      }
+
+      if (!clientSecret) {
+        setStatus("error");
+        setError(copy.orderPage.paymentIntentError);
+        return;
+      }
+
+      setStatus("ready");
+    } finally {
       isCreatingIntentRef.current = false;
+    }
+  }, [completePaidState, copy.orderPage.paymentConfirmError, copy.orderPage.paymentIntentError, order.status, orderId]);
+
+  useEffect(() => {
+    if (isPaidOrderStatus(order.status)) {
       setStatus("paid");
-      onPaid?.();
+      setError(null);
       return;
     }
 
-    isCreatingIntentRef.current = false;
-    setStatus("ready");
-  }, [copy.orderPage.paymentConfirmError, copy.orderPage.paymentIntentError, onPaid, orderId]);
-
-  useEffect(() => {
     void createPaymentIntent();
-  }, [createPaymentIntent]);
+  }, [createPaymentIntent, order.status]);
 
   const clientSecret = firstString(paymentIntent?.clientSecret, paymentIntent?.client_secret);
 
@@ -103,7 +158,19 @@ export function StripePaymentSection({
   if (status === "paid") {
     return (
       <div className="mt-5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
-        {copy.orderPage.paymentSuccess}
+        <div className="flex items-start justify-between gap-3">
+          <p>{copy.orderPage.paymentSuccess}</p>
+          {onClose ? (
+            <Button className="h-8 w-8 shrink-0 text-emerald-900" onClick={onClose} size="icon" type="button" variant="ghost" aria-label={copy.common.close}>
+              <X className="h-4 w-4" />
+            </Button>
+          ) : null}
+        </div>
+        {onClose ? (
+          <Button className="mt-3" onClick={onClose} type="button" variant="outline">
+            {copy.common.close}
+          </Button>
+        ) : null}
       </div>
     );
   }
@@ -129,9 +196,9 @@ export function StripePaymentSection({
           orderId={orderId ?? ""}
           clientSecret={clientSecret}
           paymentIntentId={firstString(paymentIntent?.paymentIntentId, paymentIntent?.payment_intent_id, paymentIntent?.id)}
-          onPaid={() => {
+          onPaid={(paidOrder) => {
             setStatus("paid");
-            onPaid?.();
+            onPaidRef.current?.(paidOrder ?? { ...orderRef.current, status: "PAID" });
           }}
           onError={setError}
           onRetryIntent={createPaymentIntent}
@@ -159,7 +226,7 @@ function StripeCheckoutForm({
   orderId: string;
   clientSecret: string;
   paymentIntentId?: string;
-  onPaid: () => void;
+  onPaid: (paidOrder?: CheckoutResponse) => void;
   onError: (message: string | null) => void;
   onRetryIntent: () => Promise<void>;
 }) {
@@ -188,7 +255,7 @@ function StripeCheckoutForm({
       setIsPaying(false);
 
       if (confirmed.ok) {
-        onPaid();
+        onPaid(confirmed.order ?? undefined);
         return;
       }
 
@@ -217,7 +284,7 @@ function StripeCheckoutForm({
         setIsPaying(false);
 
         if (confirmed.ok) {
-          onPaid();
+          onPaid(confirmed.order ?? undefined);
           return;
         }
 
@@ -242,7 +309,7 @@ function StripeCheckoutForm({
       return;
     }
 
-    onPaid();
+    onPaid(confirmed.order ?? undefined);
   }
 
   return (
@@ -262,9 +329,11 @@ function StripeCheckoutForm({
   );
 }
 
-async function confirmBackendPayment(orderId: string, paymentIntentId: string | undefined, fallbackMessage: string) {
+async function confirmBackendPayment(orderId: string, paymentIntentId: string | undefined, fallbackMessage: string): Promise<ConfirmBackendPaymentResult> {
   const headers = getAuthHeaders();
   headers.set("Content-Type", "application/json");
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 12000);
 
   const response = await fetch("/api/payments/stripe/confirm", {
     method: "POST",
@@ -274,7 +343,9 @@ async function confirmBackendPayment(orderId: string, paymentIntentId: string | 
       paymentIntentId,
     }),
     cache: "no-store",
+    signal: controller.signal,
   }).catch(() => null);
+  window.clearTimeout(timeout);
 
   if (!response?.ok) {
     const body = response ? await response.json().catch(() => null) : null;
@@ -284,7 +355,89 @@ async function confirmBackendPayment(orderId: string, paymentIntentId: string | 
     };
   }
 
-  return { ok: true };
+  const body = await response.json().catch(() => null);
+  return { ok: true, order: extractOrderPayload(body) ?? await fetchPaidOrderSnapshot({ id: orderId, orderId }) };
+}
+
+async function fetchPaidOrderSnapshot(order: CheckoutResponse) {
+  const orderKey = order.id ?? order.orderId ?? order.orderNumber;
+
+  if (!orderKey) {
+    return null;
+  }
+
+  const url = new URL("/api/orders", window.location.origin);
+  url.searchParams.set("page", "0");
+  url.searchParams.set("size", "20");
+  url.searchParams.append("sort", "createdAt,desc");
+
+  const response = await fetch(url.toString(), {
+    headers: getAuthHeaders(),
+    cache: "no-store",
+  }).catch(() => null);
+
+  if (!response?.ok) {
+    return null;
+  }
+
+  const body = await response.json().catch(() => null);
+  const orders = Array.isArray(body) ? body : isRecord(body) && Array.isArray(body.content) ? body.content : [];
+
+  return orders
+    .map((candidate) => normalizePayload<CheckoutResponse>(candidate))
+    .filter((candidate): candidate is CheckoutResponse => Boolean(candidate))
+    .find((candidate) => isSameOrder(candidate, order)) ?? null;
+}
+
+function extractOrderPayload(body: unknown): CheckoutResponse | null {
+  const payload = normalizePayload<unknown>(body);
+
+  if (isOrderLike(payload)) {
+    return payload;
+  }
+
+  if (!isRecord(payload)) {
+    return null;
+  }
+
+  for (const key of ["order", "data", "result"]) {
+    const nested = payload[key];
+
+    if (isOrderLike(nested)) {
+      return nested;
+    }
+
+    if (isRecord(nested)) {
+      for (const nestedKey of ["order", "data", "result"]) {
+        const deeper = nested[nestedKey];
+
+        if (isOrderLike(deeper)) {
+          return deeper;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function isOrderLike(value: unknown): value is CheckoutResponse {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return ["orderNumber", "orderType", "subtotal", "finalTotal", "taxAmount", "pointsEarned", "items"].some((key) => key in value);
+}
+
+function isSameOrder(candidate: CheckoutResponse, order: CheckoutResponse) {
+  const candidateKeys = [candidate.id, candidate.orderId, candidate.orderNumber].filter(Boolean);
+  const orderKeys = [order.id, order.orderId, order.orderNumber].filter(Boolean);
+
+  return candidateKeys.some((candidateKey) => orderKeys.includes(candidateKey));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object");
 }
 
 function resolveErrorMessage(body: unknown, fallback: string) {
@@ -313,6 +466,10 @@ function firstString(...values: unknown[]) {
 
 function isSucceededStatus(value: unknown) {
   return typeof value === "string" && ["succeeded", "paid", "PAID"].includes(value);
+}
+
+function isPaidOrderStatus(value: unknown) {
+  return typeof value === "string" && ["PAID", "COMPLETED"].includes(value.toUpperCase());
 }
 
 function getSucceededPaymentIntentId(error: unknown) {

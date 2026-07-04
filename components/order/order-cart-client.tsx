@@ -30,6 +30,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [isTipDialogOpen, setIsTipDialogOpen] = useState(false);
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [sessionId, setSessionId] = useState("");
   const [pointsToRedeem, setPointsToRedeem] = useState(0);
   const [customerNote, setCustomerNote] = useState("");
@@ -352,6 +353,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
     const order = normalizePayload<CheckoutResponse>(await response.json().catch(() => null));
     setCheckoutResult(order);
     setIsTipDialogOpen(false);
+    setIsPaymentDialogOpen(true);
     setCart(null);
 
     if (selectedLocationId) {
@@ -518,7 +520,10 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
         {checkoutResult ? (
           <>
             <OrderReview order={checkoutResult} copy={copy} />
-            <StripePaymentSection order={checkoutResult} copy={copy} />
+            <Button className="mt-4 w-full" onClick={() => setIsPaymentDialogOpen(true)} type="button" variant="outline">
+              <CreditCard className="h-4 w-4" />
+              {copy.orderPage.paymentTitle}
+            </Button>
           </>
         ) : null}
         <Button className="mt-6 w-full whitespace-normal" disabled={!cart?.items.length || isCheckingOut} size="lg" onClick={() => setIsTipDialogOpen(true)} type="button">
@@ -590,6 +595,35 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
               {copy.orderPage.confirmOrder}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+        <DialogContent className="w-[min(96vw,38rem)]">
+          <DialogHeader>
+            <DialogTitle>{copy.orderPage.paymentTitle}</DialogTitle>
+            <DialogDescription>{copy.orderPage.paymentNext}</DialogDescription>
+          </DialogHeader>
+          <div className="p-5 pt-0">
+            {checkoutResult ? (
+              <>
+                <OrderReview order={checkoutResult} copy={copy} />
+                <StripePaymentSection
+                  order={checkoutResult}
+                  copy={copy}
+                  onClose={() => setIsPaymentDialogOpen(false)}
+                  onPaid={(paidOrder) => {
+                    setCheckoutResult((currentOrder) => {
+                      if (!currentOrder) {
+                        return paidOrder ?? currentOrder;
+                      }
+
+                      return { ...currentOrder, ...paidOrder, status: paidOrder?.status ?? "PAID" };
+                    });
+                  }}
+                />
+              </>
+            ) : null}
+          </div>
         </DialogContent>
       </Dialog>
     </section>
