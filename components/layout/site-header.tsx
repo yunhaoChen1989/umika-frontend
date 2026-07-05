@@ -290,6 +290,36 @@ export function SiteHeader({ locale }: { locale: Locale }) {
         ? [location]
         : [];
 
+  const renderNavLinks = (isMobile = false) => (
+    <>
+      {navItems.map((item) => {
+        const isActive = pathname === item.href;
+
+        return (
+          <Button
+            key={item.href}
+            asChild
+            variant={isActive ? "default" : "ghost"}
+            size="sm"
+            className={isMobile ? "h-9 shrink-0 px-3 text-sm font-semibold" : undefined}
+          >
+            <Link href={item.href}>{dict.nav[item.label.toLowerCase() as keyof typeof dict.nav]}</Link>
+          </Button>
+        );
+      })}
+      {canViewAdmin ? (
+        <Button
+          asChild
+          variant={pathname.startsWith("/admin") || pathname.startsWith("/manager") ? "default" : "ghost"}
+          size="sm"
+          className={isMobile ? "h-9 shrink-0 px-3 text-sm font-semibold" : undefined}
+        >
+          <Link href="/admin">{dict.nav.admin}</Link>
+        </Button>
+      ) : null}
+    </>
+  );
+
   return (
     <header className="sticky top-0 z-50 border-b bg-background/92 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
@@ -307,18 +337,7 @@ export function SiteHeader({ locale }: { locale: Locale }) {
             ) : null}
           </span>
         </Link>
-        <nav className="hidden items-center gap-1 md:flex">
-          {navItems.map((item) => (
-            <Button key={item.href} asChild variant="ghost" size="sm">
-              <Link href={item.href}>{dict.nav[item.label.toLowerCase() as keyof typeof dict.nav]}</Link>
-            </Button>
-          ))}
-          {canViewAdmin ? (
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/admin">{dict.nav.admin}</Link>
-            </Button>
-          ) : null}
-        </nav>
+        <nav className="hidden items-center gap-1 md:flex">{renderNavLinks()}</nav>
         <div className="flex shrink-0 items-center gap-2">
           <label className="flex min-w-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-950 shadow-sm">
             <MapPin className="h-4 w-4 shrink-0 text-primary" />
@@ -374,6 +393,9 @@ export function SiteHeader({ locale }: { locale: Locale }) {
           </Button>
         </div>
       </div>
+      <nav className="mx-auto flex h-12 max-w-7xl items-center gap-2 overflow-x-auto border-t border-border/70 px-4 sm:px-6 md:hidden">
+        {renderNavLinks(true)}
+      </nav>
     </header>
   );
 }

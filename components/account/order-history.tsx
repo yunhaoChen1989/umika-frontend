@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ClipboardList } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
@@ -29,6 +30,7 @@ type OrderHistoryCopy = {
   orderNote: string;
   orderDetails: string;
   orderType: string;
+  requestedPickupTime: string;
   subtotal: string;
   discount: string;
   rewardDiscount: string;
@@ -44,12 +46,19 @@ type OrderHistoryCopy = {
 };
 
 export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCopy; paymentCopy: Dictionary }) {
+  const searchParams = useSearchParams();
   const [orders, setOrders] = useState<CheckoutResponse[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "unauthenticated" | "error">("loading");
   const [selectedOrder, setSelectedOrder] = useState<CheckoutResponse | null>(null);
 
   useEffect(() => {
     let active = true;
+    const locationId =
+      searchParams.get("locationId")?.trim() ??
+      searchParams.get("location")?.trim() ??
+      searchParams.get("storeId")?.trim() ??
+      searchParams.get("store")?.trim();
+    const locationCode = searchParams.get("locationCode")?.trim() ?? searchParams.get("storeCode")?.trim();
 
     async function loadOrders() {
       const token = localStorage.getItem("umika_access_token");
@@ -59,10 +68,23 @@ export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCop
         return;
       }
 
+      setStatus("loading");
+      setSelectedOrder(null);
+
+      const currentLocationId = await resolveStoredLocationId(locationId, locationCode);
+
+      if (!active) {
+        return;
+      }
+
       const url = new URL("/api/orders", window.location.origin);
       url.searchParams.set("page", "0");
       url.searchParams.set("size", "10");
       url.searchParams.append("sort", "createdAt,desc");
+
+      if (currentLocationId) {
+        url.searchParams.set("locationId", currentLocationId);
+      }
 
       const response = await fetch(url.toString(), {
         headers: {
@@ -90,7 +112,7 @@ export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCop
     return () => {
       active = false;
     };
-  }, []);
+  }, [searchParams]);
 
   return (
     <section className="mt-8">
@@ -226,6 +248,7 @@ function OrderDetailsDialog({
               <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
                 <DetailTile label={copy.orderStatus} value={order.status ?? "--"} />
                 <DetailTile label={copy.orderType} value={order.orderType ?? "--"} />
+                {order.requestedPickupTime ? <DetailTile label={copy.requestedPickupTime} value={formatDate(order.requestedPickupTime)} /> : null}
                 <DetailTile label={copy.orderTotal} value={formatMoney(order.finalTotal ?? order.total)} />
                 <DetailTile label={copy.subtotal} value={formatMoney(order.subtotal)} />
                 <DetailTile label={copy.discount} value={formatMoney(order.totalDiscount)} />
@@ -314,4 +337,50 @@ function formatOptions(value: unknown) {
   }
 
   return JSON.stringify(value);
+}
+
+async function resolveStoredLocationId(queryLocationId: string | null | undefined, queryLocationCode: string | null | undefined) {
+  const storedLocationId =
+    queryLocationId ??
+    sessionStorage.getItem("umika_location_id")?.trim() ??
+    localStorage.getItem("umika_location_id")?.trim() ??
+    sessionStorage.getItem("location_id")?.trim() ??
+    localStorage.getItem("location_id")?.trim();
+
+  if (storedLocationId) {
+    return storedLocationId;
+  }
+
+  const storedLocationCode =
+    queryLocationCode ??
+    sessionStorage.getItem("umika_location_code")?.trim() ??
+    localStorage.getItem("umika_location_code")?.trim();
+
+  if (!storedLocationCode) {
+    return "";
+  }
+
+  const url = new URL("/api/locations/resolve-id", window.location.origin);
+  url.searchParams.set("locationCode", storedLocationCode);
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    cache: "no-store",
+  }).catch(() => null);
+
+  if (!response?.ok) {
+    return "";
+  }
+
+  const body = await response.json().catch(() => null) as { id?: string | null; locationId?: string | null; location_id?: string | null } | string | null;
+  const locationId = typeof body === "string" ? body.trim() : body?.locationId ?? body?.location_id ?? body?.id ?? "";
+
+  if (locationId) {
+    sessionStorage.setItem("umika_location_id", locationId);
+    localStorage.setItem("umika_location_id", locationId);
+    sessionStorage.setItem("location_id", locationId);
+    localStorage.setItem("location_id", locationId);
+  }
+
+  return locationId;
 }

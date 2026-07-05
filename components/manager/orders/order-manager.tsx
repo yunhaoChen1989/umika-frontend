@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import { AlertCircle, CheckCircle2, ClipboardList, RefreshCw, Search } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
@@ -34,6 +35,7 @@ const statusClasses: Record<string, string> = {
 };
 
 export function OrderManager() {
+  const searchParams = useSearchParams();
   const [orders, setOrders] = useState<CheckoutResponse[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [detailOrderId, setDetailOrderId] = useState("");
@@ -54,6 +56,17 @@ export function OrderManager() {
     () => orders.find((order) => getOrderId(order) === detailOrderId) ?? null,
     [orders, detailOrderId],
   );
+  const locationContext = useMemo(() => getStoredLocationContext(searchParams), [searchParams]);
+  const locationKey = `${locationContext.locationId ?? ""}:${locationContext.locationCode ?? ""}`;
+
+  useEffect(() => {
+    setOrders([]);
+    setSelectedOrderId("");
+    setDetailOrderId("");
+    setStatus("idle");
+    setMessage(null);
+    setError(null);
+  }, [locationKey]);
 
   async function searchOrders(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
@@ -69,11 +82,23 @@ export function OrderManager() {
     setMessage(null);
     setError(null);
 
+    const locationId = await resolveLocationId(locationContext);
+
+    if (!locationId && locationContext.locationCode) {
+      setStatus("error");
+      setError("Unable to resolve the selected header location. Please choose the location again.");
+      return;
+    }
+
     const url = new URL("/api/orders", window.location.origin);
     url.searchParams.set("email", email);
     url.searchParams.set("page", "0");
     url.searchParams.set("size", "50");
     url.searchParams.set("sort", "createdAt,desc");
+
+    if (locationId) {
+      url.searchParams.set("locationId", locationId);
+    }
 
     if (statusFilter) {
       url.searchParams.set("status", statusFilter);
@@ -482,6 +507,58 @@ function getAuthHeaders() {
   }
 
   return headers;
+}
+
+function getStoredLocationContext(searchParams?: URLSearchParams | ReadonlyURLSearchParamsLike) {
+  if (typeof window === "undefined") {
+    return { locationId: null, locationCode: null };
+  }
+
+  return {
+    locationId:
+      searchParams?.get("locationId")?.trim() ??
+      searchParams?.get("location")?.trim() ??
+      searchParams?.get("storeId")?.trim() ??
+      searchParams?.get("store")?.trim() ??
+      sessionStorage.getItem("umika_location_id") ??
+      sessionStorage.getItem("location_id") ??
+      localStorage.getItem("umika_location_id") ??
+      localStorage.getItem("location_id"),
+    locationCode:
+      searchParams?.get("locationCode")?.trim() ??
+      searchParams?.get("storeCode")?.trim() ??
+      sessionStorage.getItem("umika_location_code") ??
+      localStorage.getItem("umika_location_code"),
+  };
+}
+
+type ReadonlyURLSearchParamsLike = {
+  get: (name: string) => string | null;
+};
+
+async function resolveLocationId(context: { locationId: string | null; locationCode: string | null }) {
+  if (context.locationId) {
+    return context.locationId;
+  }
+
+  if (!context.locationCode) {
+    return "";
+  }
+
+  const url = new URL("/api/locations/resolve-id", window.location.origin);
+  url.searchParams.set("locationCode", context.locationCode);
+
+  const response = await fetch(url.toString(), {
+    headers: getAuthHeaders(),
+    cache: "no-store",
+  }).catch(() => null);
+
+  if (!response?.ok) {
+    return "";
+  }
+
+  const body = (await response.json().catch(() => null)) as { locationId?: string; id?: string } | string | null;
+  return typeof body === "string" ? body.trim() : body?.locationId ?? body?.id ?? "";
 }
 
 function getOrderId(order: CheckoutResponse | null | undefined) {

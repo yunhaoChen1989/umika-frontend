@@ -62,6 +62,7 @@ export type CheckoutResponse = {
   addressId?: string | null;
   orderNumber?: string | null;
   orderType?: "PICKUP" | "DELIVERY" | "DINE_IN" | string | null;
+  requestedPickupTime?: string | null;
   status?: string | null;
   subtotal?: number | null;
   totalDiscount?: number | null;

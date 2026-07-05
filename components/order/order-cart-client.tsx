@@ -37,6 +37,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
   const [tipMode, setTipMode] = useState<"0" | "10" | "15" | "18" | "custom">("0");
   const [customTipAmount, setCustomTipAmount] = useState(0);
   const [orderType, setOrderType] = useState<"PICKUP" | "DELIVERY" | "DINE_IN">("PICKUP");
+  const [requestedPickupTime, setRequestedPickupTime] = useState("");
   const subtotal = Number(redemptionPreview?.subtotal ?? cart?.subtotal ?? 0);
   const tipAmount = calculateTipAmount(subtotal, tipMode, customTipAmount);
   const previewTipAmount = redemptionPreview?.tipAmount ?? tipAmount;
@@ -327,18 +328,37 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
 
     const headers = getAuthHeaders();
     headers.set("Content-Type", "application/json");
+    const checkoutPayload: {
+      cartId: string;
+      orderType: "PICKUP" | "DELIVERY" | "DINE_IN";
+      addressId: null;
+      customerNote: string | null;
+      pointsToRedeem: number;
+      tipAmount: number;
+      requestedPickupTime?: string | null;
+    } = {
+      cartId: cart.id,
+      orderType,
+      addressId: null,
+      customerNote: customerNote.trim() || null,
+      pointsToRedeem: canRedeemPoints ? pointsToRedeem : 0,
+      tipAmount,
+    };
+
+    if (orderType === "PICKUP") {
+      const normalizedPickupTime = normalizeRequestedPickupTime(requestedPickupTime);
+
+      if (normalizedPickupTime) {
+        checkoutPayload.requestedPickupTime = normalizedPickupTime;
+      }
+    } else {
+      checkoutPayload.requestedPickupTime = null;
+    }
 
     const response = await fetch("/api/orders/checkout", {
       method: "POST",
       headers,
-      body: JSON.stringify({
-        cartId: cart.id,
-        orderType,
-        addressId: null,
-        customerNote: customerNote.trim() || null,
-        pointsToRedeem: canRedeemPoints ? pointsToRedeem : 0,
-        tipAmount,
-      }),
+      body: JSON.stringify(checkoutPayload),
       cache: "no-store",
     }).catch(() => null);
 
@@ -360,6 +380,31 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
       localStorage.removeItem(`${cartIdKeyPrefix}:${selectedLocationId}`);
       await loadCart(selectedLocationId).catch(() => null);
       notifyCartChanged();
+    }
+  }
+
+  function resetOrderPageState() {
+    setMessage(null);
+    setPendingId(null);
+    setPointsToRedeem(0);
+    setCustomerNote("");
+    setTipMode("0");
+    setCustomTipAmount(0);
+    setRequestedPickupTime("");
+    setOrderType("PICKUP");
+    setRedemptionPreview(null);
+
+    if (selectedLocationId) {
+      void loadCart(selectedLocationId).then(() => notifyCartChanged()).catch(() => null);
+    }
+  }
+
+  function closePaymentDialog() {
+    setIsPaymentDialogOpen(false);
+
+    if (isPaidOrderStatus(checkoutResult?.status)) {
+      setCheckoutResult(null);
+      resetOrderPageState();
     }
   }
 
@@ -463,6 +508,20 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
               <option value="DINE_IN">{copy.orderPage.dineIn}</option>
             </select>
           </label>
+          {orderType === "PICKUP" ? (
+            <label className="block pt-2 text-sm font-medium">
+              {copy.orderPage.requestedPickupTime}
+              <input
+                className="mt-2 h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                onChange={(event) => setRequestedPickupTime(event.target.value)}
+                type="datetime-local"
+                value={requestedPickupTime}
+              />
+              <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                {copy.orderPage.pickupTimeHelp}
+              </span>
+            </label>
+          ) : null}
           {canRedeemPoints && redemptionPreview ? (
             <label className="block pt-2 text-sm font-medium">
               {copy.orderPage.pointsToRedeem}
@@ -517,7 +576,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
             <span>{formatMoney(finalTotal)}</span>
           </div>
         </div>
-        {checkoutResult ? (
+        {checkoutResult && !isPaidOrderStatus(checkoutResult.status) ? (
           <>
             <OrderReview order={checkoutResult} copy={copy} />
             <Button className="mt-4 w-full" onClick={() => setIsPaymentDialogOpen(true)} type="button" variant="outline">
@@ -578,6 +637,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
             </div>
             <div className="space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
               <PreviewRow label={copy.orderPage.subtotal} value={formatMoney(subtotal)} />
+              {orderType === "PICKUP" && requestedPickupTime ? <PreviewRow label={copy.orderPage.requestedPickupTime} value={formatPickupDateTime(requestedPickupTime)} /> : null}
               <PreviewRow label={copy.orderPage.redemptionAmount} value={formatMoney(redemptionAmount)} />
               <PreviewRow label={copy.orderPage.tax} value={formatMoney(tax)} />
               <PreviewRow label={copy.orderPage.tipAmount} value={formatMoney(previewTipAmount)} />
@@ -597,14 +657,25 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+      <Dialog
+        open={isPaymentDialogOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            setIsPaymentDialogOpen(true);
+          } else {
+            closePaymentDialog();
+          }
+        }}
+      >
         <DialogContent className="w-[min(96vw,38rem)]">
           <DialogHeader>
             <DialogTitle>{copy.orderPage.paymentTitle}</DialogTitle>
             <DialogDescription>{copy.orderPage.paymentNext}</DialogDescription>
           </DialogHeader>
           <div className="p-5 pt-0">
-            {checkoutResult ? (
+            {checkoutResult && isPaidOrderStatus(checkoutResult.status) ? (
+              <OrderPlacedConfirmation order={checkoutResult} copy={copy} onClose={closePaymentDialog} />
+            ) : checkoutResult ? (
               <>
                 <OrderReview order={checkoutResult} copy={copy} />
                 <StripePaymentSection
@@ -619,6 +690,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
 
                       return { ...currentOrder, ...paidOrder, status: paidOrder?.status ?? "PAID" };
                     });
+                    resetOrderPageState();
                   }}
                 />
               </>
@@ -639,6 +711,31 @@ function PreviewRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function OrderPlacedConfirmation({ order, copy, onClose }: { order: CheckoutResponse; copy: Dictionary; onClose: () => void }) {
+  const orderId = order.orderNumber ?? order.id ?? order.orderId;
+  const isPickupOrder = order.orderType === "PICKUP";
+  const pickupTime = formatPickupDateTime(order.requestedPickupTime);
+
+  return (
+    <div className="mt-5 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-950">
+      <p className="text-base font-semibold">{copy.orderPage.orderPlaced}</p>
+      <p className="mt-2 text-emerald-800">{copy.orderPage.orderPlacedHelp}</p>
+      {isPickupOrder && order.requestedPickupTime ? (
+        <p className="mt-4 rounded-md border border-emerald-200 bg-white/80 px-3 py-3 text-base font-semibold text-emerald-950">
+          {copy.orderPage.pickupReadyMessage.replace("{time}", pickupTime)}
+        </p>
+      ) : null}
+      <div className="mt-4 space-y-2 rounded-md bg-white/70 p-3">
+        {orderId ? <PreviewRow label={copy.orderPage.orderNumber} value={String(orderId)} /> : null}
+        {isPickupOrder && order.requestedPickupTime ? <PreviewRow label={copy.orderPage.requestedPickupTime} value={pickupTime} /> : null}
+      </div>
+      <Button className="mt-4 w-full" onClick={onClose} type="button">
+        {copy.common.close}
+      </Button>
+    </div>
+  );
+}
+
 function OrderReview({ order, copy }: { order: CheckoutResponse; copy: Dictionary }) {
   const items = order.items ?? [];
   const orderId = order.orderNumber ?? order.id ?? order.orderId;
@@ -650,6 +747,7 @@ function OrderReview({ order, copy }: { order: CheckoutResponse; copy: Dictionar
         {orderId ? <PreviewRow label={copy.orderPage.orderNumber} value={String(orderId)} /> : null}
         {order.status ? <PreviewRow label={copy.orderPage.orderStatus} value={order.status} /> : null}
         {order.orderType ? <PreviewRow label={copy.orderPage.orderType} value={formatOrderType(order.orderType, copy)} /> : null}
+        {order.requestedPickupTime ? <PreviewRow label={copy.orderPage.requestedPickupTime} value={formatPickupDateTime(order.requestedPickupTime)} /> : null}
         {order.customerNote ? <PreviewRow label={copy.orderPage.customerNote} value={order.customerNote} /> : null}
         <PreviewRow label={copy.orderPage.subtotal} value={formatMoney(order.subtotal)} />
         <PreviewRow label={copy.orderPage.totalDiscount} value={formatMoney(order.totalDiscount)} />
@@ -737,4 +835,33 @@ function calculateTipAmount(subtotal: number, tipMode: "0" | "10" | "15" | "18" 
 
 function roundMoney(value: number) {
   return Number.isFinite(value) ? Math.round(Math.max(0, value) * 100) / 100 : 0;
+}
+
+function normalizeRequestedPickupTime(value: string) {
+  if (!value) {
+    return null;
+  }
+
+  return value.length === 16 ? `${value}:00` : value;
+}
+
+function formatPickupDateTime(value: string | null | undefined) {
+  if (!value) {
+    return "--";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value.replace("T", " ");
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function isPaidOrderStatus(value: unknown) {
+  return typeof value === "string" && ["PAID", "COMPLETED"].includes(value.toUpperCase());
 }
