@@ -70,6 +70,7 @@ export const managerMenus: ManagerMenu[] = [
       { id: "availability", name: "Availability", code: "MANAGER_MENU_AVAILABILITY", path: "/manager/menus/availability", icon: "BadgeAlert", sortOrder: 50, permission: "MENU_AVAILABILITY_EDIT" },
     ],
   },
+  { id: "recommendations", name: "Recommendations", code: "MANAGER_RECOMMENDATIONS", path: "/manager/recommendations", icon: "Sparkles", sortOrder: 45, permission: "MENU_EDIT" },
   { id: "orders", name: "Orders", code: "MANAGER_ORDERS", path: "/manager/orders", icon: "ClipboardList", sortOrder: 50, permission: "ORDER_VIEW" },
   { id: "rewards", name: "Rewards", code: "MANAGER_REWARDS", path: "/manager/rewards", icon: "BadgePercent", sortOrder: 60, permission: "REWARD_VIEW" },
   { id: "payments", name: "Payments", code: "MANAGER_PAYMENTS", path: "/manager/payments", icon: "CreditCard", sortOrder: 70, permission: "PAYMENT_VIEW" },
