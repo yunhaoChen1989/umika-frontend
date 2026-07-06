@@ -7,6 +7,7 @@ export type MenuRecommendation = {
   sortOrder: number | null;
   isActive: boolean | null;
   isVisible?: boolean | null;
+  locationItemVisible?: boolean | null;
   categoryId: string | null;
   itemName: string | null;
   itemDescription: string | null;

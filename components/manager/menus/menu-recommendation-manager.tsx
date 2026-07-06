@@ -43,7 +43,6 @@ export function MenuRecommendationManager() {
   const [locationReady, setLocationReady] = useState(false);
   const [scope, setScope] = useState<"header" | "global">("header");
   const [recommendations, setRecommendations] = useState<MenuRecommendation[]>([]);
-  const [globalRecommendations, setGlobalRecommendations] = useState<MenuRecommendation[]>([]);
   const [menuItems, setMenuItems] = useState<BackendMenuItem[]>([]);
   const [form, setForm] = useState<RecommendationForm>(emptyForm);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -92,11 +91,6 @@ export function MenuRecommendationManager() {
     recommendationUrl.searchParams.set("size", "20");
     recommendationUrl.searchParams.append("sort", "sortOrder,asc");
 
-    const globalRecommendationUrl = new URL("/api/manager/menu-recommendations", window.location.origin);
-    globalRecommendationUrl.searchParams.set("page", "0");
-    globalRecommendationUrl.searchParams.set("size", "100");
-    globalRecommendationUrl.searchParams.append("sort", "sortOrder,asc");
-
     const menuItemsUrl = new URL("/api/manager/menu-items", window.location.origin);
     menuItemsUrl.searchParams.set("page", "0");
     menuItemsUrl.searchParams.set("size", "200");
@@ -107,9 +101,8 @@ export function MenuRecommendationManager() {
       menuItemsUrl.searchParams.set("locationId", selectedLocationId);
     }
 
-    const [recommendationResponse, globalRecommendationResponse, menuItemsResponse] = await Promise.all([
+    const [recommendationResponse, menuItemsResponse] = await Promise.all([
       fetch(recommendationUrl.toString(), { headers: getAuthHeaders(), cache: "no-store" }).catch(() => null),
-      fetch(globalRecommendationUrl.toString(), { headers: getAuthHeaders(), cache: "no-store" }).catch(() => null),
       fetch(menuItemsUrl.toString(), { headers: getAuthHeaders(), cache: "no-store" }).catch(() => null),
     ]);
 
@@ -118,14 +111,6 @@ export function MenuRecommendationManager() {
       setRecommendations([]);
       setStatus("idle");
       setError(getApiErrorMessage(body, "Unable to load menu recommendations."));
-      return;
-    }
-
-    if (!globalRecommendationResponse?.ok) {
-      const body = globalRecommendationResponse ? await globalRecommendationResponse.json().catch(() => null) : null;
-      setGlobalRecommendations([]);
-      setStatus("idle");
-      setError(getApiErrorMessage(body, "Unable to load global recommendations."));
       return;
     }
 
@@ -138,10 +123,8 @@ export function MenuRecommendationManager() {
     }
 
     const recommendationBody = (await recommendationResponse.json().catch(() => null)) as SpringPage<MenuRecommendation> | MenuRecommendation[] | null;
-    const globalRecommendationBody = (await globalRecommendationResponse.json().catch(() => null)) as SpringPage<MenuRecommendation> | MenuRecommendation[] | null;
     const menuItemsBody = (await menuItemsResponse.json().catch(() => null)) as SpringPage<BackendMenuItem> | BackendMenuItem[] | null;
     setRecommendations(Array.isArray(recommendationBody) ? recommendationBody : recommendationBody?.content ?? []);
-    setGlobalRecommendations(Array.isArray(globalRecommendationBody) ? globalRecommendationBody : globalRecommendationBody?.content ?? []);
     setMenuItems(Array.isArray(menuItemsBody) ? menuItemsBody : menuItemsBody?.content ?? []);
     setStatus("idle");
   }, [locationReady, selectedLocationId]);
@@ -277,9 +260,13 @@ export function MenuRecommendationManager() {
         <CardHeader className="border-b border-slate-200">
           <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
             <div>
-              <CardTitle className="text-base">Recommendation scope</CardTitle>
+              <CardTitle className="text-base">Global recommendation setting</CardTitle>
               <p className="mt-2 text-sm text-slate-500">
-                {selectedLocationId ? `Using header location ${selectedLocationId}.` : "Using global recommendations."}
+                {scope === "global"
+                  ? "Editing global homepage recommendations."
+                  : selectedLocationId
+                    ? `Editing recommendations for header location ${selectedLocationId}.`
+                    : "No header location is selected. Global recommendations are shown."}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -289,10 +276,6 @@ export function MenuRecommendationManager() {
               <Button type="button" variant={scope === "global" ? "default" : "outline"} onClick={() => setScope("global")}>
                 Global
               </Button>
-              <Button type="button" variant="outline" onClick={() => void loadData()} disabled={status === "loading"}>
-                <RefreshCw className="h-4 w-4" />
-                Refresh
-              </Button>
             </div>
           </div>
         </CardHeader>
@@ -301,11 +284,26 @@ export function MenuRecommendationManager() {
       <Card className="overflow-hidden rounded-md shadow-none">
         <CardHeader className="border-b border-slate-200">
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-            <CardTitle className="text-base">Recommended items</CardTitle>
-            <Button type="button" onClick={openCreateDialog}>
-              <Plus className="h-4 w-4" />
-              Add recommendation
-            </Button>
+            <div>
+              <CardTitle className="text-base">Recommended items</CardTitle>
+              <p className="mt-2 text-sm text-slate-500">
+                {scope === "global"
+                  ? "Global recommendations use no locationId."
+                  : selectedLocationId
+                    ? "Visibility switches use locationItemVisible for this header location."
+                    : "No header location selected. Visibility switches are disabled."}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={() => void loadData()} disabled={status === "loading"}>
+                <RefreshCw className="h-4 w-4" />
+                Refresh
+              </Button>
+              <Button type="button" onClick={openCreateDialog}>
+                <Plus className="h-4 w-4" />
+                Add recommendation
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -316,9 +314,10 @@ export function MenuRecommendationManager() {
               {recommendations.map((item) => {
                 const title = item.title?.trim() || item.itemName || item.menuItemId;
                 const subtitle = item.subtitle?.trim() || item.itemDescription || "";
+                const visibility = resolveVisibilityState(item);
 
                 return (
-                  <div className="grid gap-3 px-4 py-3 text-sm lg:grid-cols-[72px_1fr_110px_110px_170px] lg:items-center" key={item.id}>
+                  <div className="grid gap-3 px-4 py-3 text-sm lg:grid-cols-[72px_1fr_110px_110px_120px_170px] lg:items-center" key={item.id}>
                     <div className="h-16 w-16 overflow-hidden rounded-md bg-slate-100">
                       {item.imageUrl ? <img alt={title} className="h-full w-full object-cover" src={resolveBackendMediaUrl(item.imageUrl)} /> : null}
                     </div>
@@ -327,20 +326,29 @@ export function MenuRecommendationManager() {
                         <p className="font-semibold text-slate-950">{title}</p>
                         <Badge>{item.locationId ? "Location" : "Global"}</Badge>
                         {item.isActive === false ? <Badge>Inactive</Badge> : null}
-                        {item.isVisible === false ? <Badge>Hidden here</Badge> : null}
+                        {visibility === "unknown" ? null : visibility ? <Badge>Visible here</Badge> : <Badge>Hidden here</Badge>}
                       </div>
                       {subtitle ? <p className="mt-1 line-clamp-2 text-slate-500">{subtitle}</p> : null}
                     </div>
                     <p className="font-semibold text-slate-950">{formatMoney(item.price)}</p>
                     <p className="text-slate-500">Sort {item.sortOrder ?? 0}</p>
+                    <div className="flex items-center gap-3">
+                      <VisibilitySwitch
+                        checked={visibility === true}
+                        disabled={scope === "global" || !selectedLocationId || visibility === "unknown"}
+                        label={`${visibility === false ? "Show" : "Hide"} ${title} for this location`}
+                        onChange={(nextVisible) => void updateLocationVisibility(item, nextVisible)}
+                      />
+                      <span className="text-xs text-slate-500">
+                        {scope === "global" ? "Global" : visibility === "unknown" ? "Global" : visibility ? "Visible" : "Hidden"}
+                      </span>
+                    </div>
                     <div className="flex flex-wrap gap-2 lg:justify-end">
-                      <Button type="button" variant="outline" size="sm" onClick={() => openEditDialog(item)}>
+                      <Button type="button" variant="outline" size="icon" aria-label={`Edit ${title}`} onClick={() => openEditDialog(item)}>
                         <Pencil className="h-4 w-4" />
-                        Edit
                       </Button>
-                      <Button type="button" variant="outline" size="sm" onClick={() => void deleteRecommendation(item)}>
+                      <Button type="button" variant="outline" size="icon" aria-label={`Delete ${title}`} onClick={() => void deleteRecommendation(item)}>
                         <Trash2 className="h-4 w-4" />
-                        Delete
                       </Button>
                     </div>
                   </div>
@@ -350,56 +358,6 @@ export function MenuRecommendationManager() {
           ) : null}
         </CardContent>
       </Card>
-
-      {selectedLocationId ? (
-        <Card className="overflow-hidden rounded-md shadow-none">
-          <CardHeader className="border-b border-slate-200">
-            <CardTitle className="text-base">Global recommendation visibility for this location</CardTitle>
-            <p className="mt-2 text-sm text-slate-500">
-              Switch a global recommended item off to hide it only for the current header location.
-            </p>
-          </CardHeader>
-          <CardContent className="p-0">
-            {globalRecommendations.length === 0 ? (
-              <div className="p-5 text-sm text-slate-500">No global recommendations found.</div>
-            ) : (
-              <div className="divide-y divide-slate-200">
-                {globalRecommendations.map((item) => {
-                  const locationRow = recommendations.find((recommendation) => recommendation.menuItemId === item.menuItemId);
-                  const visibility = resolveVisibilityState(locationRow ?? item);
-                  const title = item.title?.trim() || item.itemName || item.menuItemId;
-                  const subtitle = item.subtitle?.trim() || item.itemDescription || "";
-
-                  return (
-                    <div className="grid gap-3 px-4 py-3 text-sm lg:grid-cols-[72px_1fr_150px] lg:items-center" key={`visibility-${item.id}`}>
-                      <div className="h-16 w-16 overflow-hidden rounded-md bg-slate-100">
-                        {item.imageUrl ? <img alt={title} className="h-full w-full object-cover" src={resolveBackendMediaUrl(item.imageUrl)} /> : null}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-semibold text-slate-950">{title}</p>
-                          <Badge>Global</Badge>
-                          {item.isActive === false ? <Badge>Inactive</Badge> : null}
-                          {visibility === "unknown" ? <Badge>Visibility unknown</Badge> : visibility ? <Badge>Visible here</Badge> : <Badge>Hidden here</Badge>}
-                        </div>
-                        {subtitle ? <p className="mt-1 line-clamp-2 text-slate-500">{subtitle}</p> : null}
-                      </div>
-                      <div className="flex items-center justify-start gap-3 lg:justify-end">
-                        <VisibilitySwitch
-                          checked={visibility === true}
-                          disabled={visibility === "unknown"}
-                          label={`${visibility === false ? "Show" : "Hide"} ${title} for this location`}
-                          onChange={(nextVisible) => void updateLocationVisibility(item, nextVisible)}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
@@ -511,6 +469,10 @@ function VisibilitySwitch({
 }
 
 function resolveVisibilityState(item: MenuRecommendation): boolean | "unknown" {
+  if (typeof item.locationItemVisible === "boolean") {
+    return item.locationItemVisible;
+  }
+
   if (typeof item.isVisible === "boolean") {
     return item.isVisible;
   }
