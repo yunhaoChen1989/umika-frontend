@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, CheckCircle2, ClipboardList, RefreshCw, Search } from "lucide-react";
+import { AlertCircle, Bell, CheckCircle2, ClipboardList, RefreshCw, Search, Volume2 } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +24,7 @@ type SpringPage<T> = {
 };
 
 const ORDER_STATUSES: OrderStatus[] = ["PENDING", "PAID", "PREPARING", "READY", "COMPLETED", "CANCELLED"];
+const BACKEND_API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080/api/v1").replace(/\/$/, "");
 
 const statusClasses: Record<string, string> = {
   PENDING: "border-amber-200 bg-amber-50 text-amber-800",
@@ -45,8 +46,15 @@ export function OrderManager() {
   const [statusNotes, setStatusNotes] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "unauthenticated" | "error">("idle");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [pickupUpdatingId, setPickupUpdatingId] = useState<string | null>(null);
+  const [liveStatus, setLiveStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected");
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [activeAlertOrderId, setActiveAlertOrderId] = useState<string | null>(null);
+  const [latestNotification, setLatestNotification] = useState<OrderNotificationPayload | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const activeAlertOrderIdRef = useRef<string | null>(null);
 
   const selectedOrder = useMemo(
     () => orders.find((order) => getOrderId(order) === selectedOrderId) ?? orders[0] ?? null,
@@ -67,6 +75,81 @@ export function OrderManager() {
     setMessage(null);
     setError(null);
   }, [locationKey]);
+
+  useEffect(() => {
+    activeAlertOrderIdRef.current = activeAlertOrderId;
+  }, [activeAlertOrderId]);
+
+  useEffect(() => {
+    if (!soundEnabled || !activeAlertOrderId) {
+      return;
+    }
+
+    playOrderNotificationSound(true);
+    const interval = window.setInterval(() => {
+      if (activeAlertOrderIdRef.current) {
+        playOrderNotificationSound(true);
+      }
+    }, 2500);
+
+    return () => window.clearInterval(interval);
+  }, [activeAlertOrderId, soundEnabled]);
+
+  useEffect(() => {
+    let socket: WebSocket | null = null;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    let closedByEffect = false;
+
+    async function connect() {
+      const locationId = await resolveLocationId(locationContext);
+
+      if (closedByEffect) {
+        return;
+      }
+
+      setLiveStatus("connecting");
+      socket = new WebSocket(buildOrderNotificationWsUrl(locationId));
+
+      socket.onopen = () => setLiveStatus("connected");
+      socket.onclose = () => {
+        setLiveStatus("disconnected");
+        if (!closedByEffect) {
+          reconnectTimeout = setTimeout(() => void connect(), 3000);
+        }
+      };
+      socket.onerror = () => {
+        setLiveStatus("disconnected");
+      };
+      socket.onmessage = (event) => {
+        const payload = parseOrderNotification(event.data);
+        if (!payload?.order) {
+          return;
+        }
+
+        setLatestNotification(payload);
+        upsertOrder(payload.order);
+        setSelectedOrderId(getOrderId(payload.order));
+        if (payload.requiresAcceptance && (payload.order.status ?? "").toUpperCase() === "PAID") {
+          setActiveAlertOrderId(getOrderId(payload.order));
+        } else if ((payload.order.status ?? "").toUpperCase() !== "PAID") {
+          setActiveAlertOrderId((current) => (current === getOrderId(payload.order) ? null : current));
+        }
+        if (payload.type !== "ORDER_STATUS_UPDATED") {
+          setDetailOrderId(getOrderId(payload.order));
+        }
+      };
+    }
+
+    void connect();
+
+    return () => {
+      closedByEffect = true;
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      socket?.close();
+    };
+  }, [locationContext, locationKey, soundEnabled]);
 
   async function searchOrders(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
@@ -179,6 +262,112 @@ export function OrderManager() {
     setMessage(`Order ${order.orderNumber ?? orderId} status updated to ${nextStatus}.`);
   }
 
+  async function acceptOrder(order: CheckoutResponse, requestedPickupTime?: string) {
+    const orderId = getOrderId(order);
+
+    if (!orderId) {
+      return;
+    }
+
+    setAcceptingId(orderId);
+    setMessage(null);
+    setError(null);
+
+    const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/status`, {
+      method: "PATCH",
+      headers: {
+        ...getAuthHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        status: "PREPARING",
+        note: "Accepted by staff from live notification",
+        requestedPickupTime: requestedPickupTime || undefined,
+      }),
+      cache: "no-store",
+    }).catch(() => null);
+
+    setAcceptingId(null);
+
+    if (!response?.ok) {
+      const body = response ? await response.json().catch(() => null) : null;
+      setError(getApiErrorMessage(body, "Unable to accept order."));
+      return;
+    }
+
+    const updatedOrder = (await response.json().catch(() => null)) as CheckoutResponse | null;
+    if (updatedOrder && getOrderId(updatedOrder)) {
+      upsertOrder(updatedOrder);
+      setActiveAlertOrderId((current) => (current === orderId ? null : current));
+      setLatestNotification((current) =>
+        current && current.orderId === orderId
+          ? { ...current, requiresAcceptance: false, type: "ORDER_STATUS_UPDATED", status: updatedOrder.status ?? "PREPARING", order: updatedOrder }
+          : current,
+      );
+    }
+    setMessage(`Order ${order.orderNumber ?? orderId} accepted.`);
+  }
+
+  async function updatePickupTime(order: CheckoutResponse, requestedPickupTime?: string) {
+    const orderId = getOrderId(order);
+
+    if (!orderId || !requestedPickupTime) {
+      return;
+    }
+
+    setPickupUpdatingId(orderId);
+    setMessage(null);
+    setError(null);
+
+    const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/status`, {
+      method: "PATCH",
+      headers: {
+        ...getAuthHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        status: order.status ?? "PREPARING",
+        note: "Pickup time updated by staff",
+        requestedPickupTime,
+      }),
+      cache: "no-store",
+    }).catch(() => null);
+
+    setPickupUpdatingId(null);
+
+    if (!response?.ok) {
+      const body = response ? await response.json().catch(() => null) : null;
+      setError(getApiErrorMessage(body, "Unable to update pickup time."));
+      return;
+    }
+
+    const updatedOrder = (await response.json().catch(() => null)) as CheckoutResponse | null;
+    if (updatedOrder && getOrderId(updatedOrder)) {
+      upsertOrder(updatedOrder);
+    }
+    setMessage(`Order ${order.orderNumber ?? orderId} pickup time updated.`);
+  }
+
+
+  function upsertOrder(order: CheckoutResponse) {
+    const orderId = getOrderId(order);
+
+    if (!orderId) {
+      return;
+    }
+
+    setOrders((current) => {
+      const exists = current.some((item) => getOrderId(item) === orderId);
+      const nextOrders = exists ? current.map((item) => (getOrderId(item) === orderId ? order : item)) : [order, ...current];
+      return nextOrders.slice(0, 50);
+    });
+    setStatusDrafts((current) => ({
+      ...current,
+      [orderId]: (order.status ?? "PENDING") as OrderStatus,
+    }));
+    setStatus((current) => (current === "unauthenticated" ? current : "ready"));
+  }
+
   if (status === "unauthenticated") {
     return (
       <Card className="rounded-md shadow-none">
@@ -206,6 +395,40 @@ export function OrderManager() {
           <p>{message}</p>
         </div>
       ) : null}
+
+      <Card className="rounded-md shadow-none">
+        <CardContent className="flex flex-col gap-3 pt-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="rounded-md bg-primary/10 p-2 text-primary">
+              <Bell className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-950">Live order notifications</p>
+              <p className="mt-1 text-sm text-slate-500">
+                {latestNotification
+                  ? `${latestNotification.orderNumber ?? latestNotification.orderId} · ${formatNotificationType(latestNotification)}`
+                  : `WebSocket ${liveStatus}`}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className={cn("rounded-md", liveStatus === "connected" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")}>
+              {liveStatus}
+            </Badge>
+            <Button
+              onClick={() => {
+                setSoundEnabled(true);
+                playOrderNotificationSound(true);
+              }}
+              type="button"
+              variant={soundEnabled ? "default" : "outline"}
+            >
+              <Volume2 className="h-4 w-4" />
+              {soundEnabled ? "Sound on" : "Enable sound"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="rounded-md shadow-none">
         <CardHeader className="border-b border-slate-200">
@@ -262,7 +485,7 @@ export function OrderManager() {
           </CardHeader>
           <CardContent className="p-0">
             {orders.length === 0 ? (
-              <div className="p-5 text-sm text-slate-500">Search by email to load orders.</div>
+              <div className="p-5 text-sm text-slate-500">Live paid orders appear here. You can also search by customer email.</div>
             ) : (
               <div className="max-h-[720px] overflow-y-auto">
                 {orders.map((order) => {
@@ -394,26 +617,56 @@ export function OrderManager() {
         </Card>
       </div>
       <ManagerOrderDetailsDialog
+        acceptingId={acceptingId}
         order={detailOrder}
+        onAccept={(order, requestedPickupTime) => void acceptOrder(order, requestedPickupTime)}
+        onPickupTimeUpdate={(order, requestedPickupTime) => void updatePickupTime(order, requestedPickupTime)}
         onOpenChange={(open) => {
           if (!open) {
             setDetailOrderId("");
           }
         }}
+        pickupUpdatingId={pickupUpdatingId}
       />
     </div>
   );
 }
 
+type OrderNotificationPayload = {
+  type?: string;
+  orderId?: string;
+  locationId?: string | null;
+  orderNumber?: string | null;
+  status?: string | null;
+  autoAccepted?: boolean;
+  requiresAcceptance?: boolean;
+  order?: CheckoutResponse;
+  createdAt?: string | null;
+};
+
 function ManagerOrderDetailsDialog({
+  acceptingId,
   order,
+  onAccept,
+  onPickupTimeUpdate,
   onOpenChange,
+  pickupUpdatingId,
 }: {
+  acceptingId: string | null;
   order: CheckoutResponse | null;
+  onAccept: (order: CheckoutResponse, requestedPickupTime?: string) => void;
+  onPickupTimeUpdate: (order: CheckoutResponse, requestedPickupTime?: string) => void;
   onOpenChange: (open: boolean) => void;
+  pickupUpdatingId: string | null;
 }) {
   const items = order?.items ?? [];
   const orderId = order ? getOrderId(order) : "";
+  const [pickupTime, setPickupTime] = useState("");
+  const isWaitingForAcceptance = (order?.status ?? "").toUpperCase() === "PAID";
+
+  useEffect(() => {
+    setPickupTime(toDatetimeLocalValue(order?.requestedPickupTime));
+  }, [order?.requestedPickupTime, orderId]);
 
   return (
     <Dialog open={Boolean(order)} onOpenChange={onOpenChange}>
@@ -429,7 +682,9 @@ function ManagerOrderDetailsDialog({
             <div className="space-y-5 p-5">
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge status={order.status ?? "PENDING"} />
-                <span className="text-sm text-slate-500">Backend order snapshot</span>
+                <span className="text-sm text-slate-500">
+                  {isWaitingForAcceptance ? "Waiting for staff acceptance" : "Backend order snapshot"}
+                </span>
               </div>
 
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -442,6 +697,40 @@ function ManagerOrderDetailsDialog({
                 <SummaryTile label="Tax" value={`${formatMoney(order.taxAmount ?? order.tax)} / ${formatPercent(order.taxRate)}`} />
                 <SummaryTile label="Points" value={`${order.pointsRedeemed ?? 0} redeemed / ${order.pointsEarned ?? 0} earned`} />
               </div>
+
+              {order.orderType === "PICKUP" ? (
+                <div className="rounded-md border border-slate-200 p-4">
+                  <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
+                    <label className="block">
+                      <span className="text-sm font-semibold text-slate-700">Pickup time</span>
+                      <input
+                        className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                        onChange={(event) => setPickupTime(event.target.value)}
+                        type="datetime-local"
+                        value={pickupTime}
+                      />
+                    </label>
+                    {isWaitingForAcceptance ? (
+                      <Button disabled={acceptingId === orderId} onClick={() => onAccept(order, fromDatetimeLocalValue(pickupTime))} type="button">
+                        {acceptingId === orderId ? "Accepting..." : "Accept order"}
+                      </Button>
+                    ) : (
+                      <Button disabled={pickupUpdatingId === orderId} onClick={() => onPickupTimeUpdate(order, fromDatetimeLocalValue(pickupTime))} type="button" variant="outline">
+                        {pickupUpdatingId === orderId ? "Saving..." : "Save pickup time"}
+                      </Button>
+                    )}
+                  </div>
+                  {isWaitingForAcceptance ? (
+                    <p className="mt-2 text-xs text-slate-500">Confirm or adjust the pickup time before accepting.</p>
+                  ) : null}
+                </div>
+              ) : isWaitingForAcceptance ? (
+                <div className="rounded-md border border-slate-200 p-4">
+                  <Button disabled={acceptingId === orderId} onClick={() => onAccept(order)} type="button">
+                    {acceptingId === orderId ? "Accepting..." : "Accept order"}
+                  </Button>
+                </div>
+              ) : null}
 
               <div className="rounded-md border border-slate-200">
                 <div className="border-b border-slate-200 bg-slate-100 px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Items</div>
@@ -507,6 +796,95 @@ function getAuthHeaders() {
   }
 
   return headers;
+}
+
+function buildOrderNotificationWsUrl(locationId: string) {
+  const baseUrl = new URL(BACKEND_API_BASE_URL);
+  baseUrl.protocol = baseUrl.protocol === "https:" ? "wss:" : "ws:";
+  const apiPath = baseUrl.pathname.replace(/\/$/, "");
+  baseUrl.pathname = `${apiPath}/manager/order-notifications/ws`;
+  baseUrl.search = "";
+
+  if (locationId) {
+    baseUrl.searchParams.set("locationId", locationId);
+  }
+
+  const token = typeof window === "undefined" ? "" : localStorage.getItem("umika_access_token");
+  if (token) {
+    baseUrl.searchParams.set("token", token);
+  }
+
+  return baseUrl.toString();
+}
+
+function parseOrderNotification(value: string) {
+  try {
+    const payload = JSON.parse(value) as OrderNotificationPayload;
+    return payload && typeof payload === "object" ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+function playOrderNotificationSound(enabled: boolean) {
+  if (!enabled || typeof window === "undefined") {
+    return;
+  }
+
+  const AudioContextClass =
+    window.AudioContext ??
+    (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextClass) {
+    return;
+  }
+
+  const context = new AudioContextClass();
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+
+  oscillator.type = "sine";
+  oscillator.frequency.setValueAtTime(880, context.currentTime);
+  oscillator.frequency.setValueAtTime(660, context.currentTime + 0.12);
+  gain.gain.setValueAtTime(0.0001, context.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.22, context.currentTime + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.35);
+  oscillator.connect(gain);
+  gain.connect(context.destination);
+  oscillator.start();
+  oscillator.stop(context.currentTime + 0.36);
+  window.setTimeout(() => void context.close(), 500);
+}
+
+function formatNotificationType(payload: OrderNotificationPayload) {
+  if (payload.requiresAcceptance) {
+    return "Paid order waiting for acceptance";
+  }
+  if (payload.autoAccepted) {
+    return "Paid order sent directly to preparation";
+  }
+  return `Status ${payload.status ?? "updated"}`;
+}
+
+function toDatetimeLocalValue(value: string | null | undefined) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value.slice(0, 16);
+  }
+
+  const offsetMs = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function fromDatetimeLocalValue(value: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  return value.length === 16 ? `${value}:00` : value;
 }
 
 function getStoredLocationContext(searchParams?: URLSearchParams | ReadonlyURLSearchParamsLike) {

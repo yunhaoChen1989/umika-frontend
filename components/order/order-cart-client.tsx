@@ -714,20 +714,25 @@ function PreviewRow({ label, value }: { label: string; value: string }) {
 function OrderPlacedConfirmation({ order, copy, onClose }: { order: CheckoutResponse; copy: Dictionary; onClose: () => void }) {
   const orderId = order.orderNumber ?? order.id ?? order.orderId;
   const isPickupOrder = order.orderType === "PICKUP";
+  const isWaitingForAcceptance = (order.status ?? "").toUpperCase() === "PAID";
   const pickupTime = formatPickupDateTime(order.requestedPickupTime);
 
   return (
     <div className="mt-5 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-950">
       <p className="text-base font-semibold">{copy.orderPage.orderPlaced}</p>
       <p className="mt-2 text-emerald-800">{copy.orderPage.orderPlacedHelp}</p>
-      {isPickupOrder && order.requestedPickupTime ? (
+      {isPickupOrder && isWaitingForAcceptance ? (
+        <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-base font-semibold text-amber-900">
+          {copy.orderPage.orderWaitingAcceptanceMessage}
+        </p>
+      ) : isPickupOrder && order.requestedPickupTime ? (
         <p className="mt-4 rounded-md border border-emerald-200 bg-white/80 px-3 py-3 text-base font-semibold text-emerald-950">
           {copy.orderPage.pickupReadyMessage.replace("{time}", pickupTime)}
         </p>
       ) : null}
       <div className="mt-4 space-y-2 rounded-md bg-white/70 p-3">
         {orderId ? <PreviewRow label={copy.orderPage.orderNumber} value={String(orderId)} /> : null}
-        {isPickupOrder && order.requestedPickupTime ? <PreviewRow label={copy.orderPage.requestedPickupTime} value={pickupTime} /> : null}
+        {isPickupOrder && !isWaitingForAcceptance && order.requestedPickupTime ? <PreviewRow label={copy.orderPage.requestedPickupTime} value={pickupTime} /> : null}
       </div>
       <Button className="mt-4 w-full" onClick={onClose} type="button">
         {copy.common.close}
