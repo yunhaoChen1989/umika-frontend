@@ -23,6 +23,7 @@ type BusinessSetting = {
   settingKey: string;
   label?: string | null;
   description?: string | null;
+  valueType?: string | null;
   unit?: string | null;
   systemValue?: string | null;
   locationValue?: string | null;
@@ -446,8 +447,8 @@ export function LocationSettingManager() {
                             <p>{setting.description || "No description provided."}</p>
                             {setting.unit ? <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-500">Unit: {setting.unit}</p> : null}
                             <p className="mt-2 text-xs text-slate-500">
-                              System: {formatSettingValue(setting.systemValue)}
-                              {selectedLocationId ? ` / Location: ${formatSettingValue(setting.locationValue)}` : null}
+                              System: {formatSettingValue(setting.systemValue, setting)}
+                              {selectedLocationId ? ` / Location: ${formatSettingValue(setting.locationValue, setting)}` : null}
                             </p>
                           </div>
                           <div>
@@ -457,7 +458,7 @@ export function LocationSettingManager() {
                               setting={setting}
                               value={value}
                             />
-                            <p className="mt-1 text-xs text-slate-500">Effective value from backend: {formatSettingValue(setting.effectiveValue)}</p>
+                            <p className="mt-1 text-xs text-slate-500">Effective value from backend: {formatSettingValue(setting.effectiveValue, setting)}</p>
                           </div>
                           <div className="flex flex-col gap-2">
                             <Button
@@ -507,6 +508,36 @@ function SettingInput({
   setting: BusinessSetting;
   value: string;
 }) {
+  if (isBooleanSetting(setting)) {
+    const checked = parseBooleanSettingValue(value);
+
+    return (
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          aria-checked={checked}
+          aria-label={`Toggle ${getSettingLabel(setting)}`}
+          className={[
+            "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors",
+            checked ? "border-primary bg-primary" : "border-slate-300 bg-slate-200",
+            disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+          ].join(" ")}
+          disabled={disabled}
+          onClick={() => onChange(checked ? "false" : "true")}
+          role="switch"
+        >
+          <span
+            className={[
+              "inline-block h-5 w-5 rounded-full bg-white shadow transition-transform",
+              checked ? "translate-x-6" : "translate-x-1",
+            ].join(" ")}
+          />
+        </button>
+        <span className="text-sm font-medium text-slate-700">{checked ? "Enabled" : "Disabled"}</span>
+      </div>
+    );
+  }
+
   const isNumber = NUMBER_KEYS.has(setting.settingKey);
 
   return (
@@ -522,13 +553,26 @@ function SettingInput({
   );
 }
 
+function isBooleanSetting(setting: BusinessSetting) {
+  const valueType = setting.valueType?.trim().toLowerCase();
+  return valueType === "boolean" || valueType === "bool";
+}
+
+function parseBooleanSettingValue(value: string | null | undefined) {
+  return ["true", "1", "yes", "on", "enabled"].includes((value ?? "").trim().toLowerCase());
+}
+
 function getSettingLabel(setting: BusinessSetting) {
   return setting.label || FALLBACK_LABELS[setting.settingKey] || setting.settingKey;
 }
 
-function formatSettingValue(value: string | null | undefined) {
+function formatSettingValue(value: string | null | undefined, setting?: BusinessSetting) {
   if (value === null || value === undefined || value === "") {
     return "Not set";
+  }
+
+  if (setting && isBooleanSetting(setting)) {
+    return parseBooleanSettingValue(value) ? "Enabled" : "Disabled";
   }
 
   return value;
