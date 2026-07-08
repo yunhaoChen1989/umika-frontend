@@ -50,6 +50,7 @@ export function OrderManager() {
   const [totalPages, setTotalPages] = useState(0);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "unauthenticated" | "error">("idle");
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected");
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [activeAlertOrderId, setActiveAlertOrderId] = useState<string | null>(null);
@@ -277,6 +278,55 @@ export function OrderManager() {
     setDetailOrderId("");
   }
 
+  async function updateOrderStatus(order: CheckoutResponse, nextStatus: OrderStatus, note?: string) {
+    const orderId = getOrderId(order);
+
+    if (!orderId) {
+      return;
+    }
+
+    setUpdatingStatusId(orderId);
+    setMessage(null);
+    setError(null);
+    setDialogError(null);
+
+    const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/status`, {
+      method: "PATCH",
+      headers: {
+        ...getAuthHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        status: nextStatus,
+        note: note?.trim() || `Status updated to ${nextStatus}`,
+      }),
+      cache: "no-store",
+    }).catch(() => null);
+
+    setUpdatingStatusId(null);
+
+    if (!response?.ok) {
+      const body = response ? await response.json().catch(() => null) : null;
+      const message = getApiErrorMessage(body, "Unable to update order status.");
+      setError(message);
+      setDialogError(message);
+      return;
+    }
+
+    const updatedOrder = (await response.json().catch(() => null)) as CheckoutResponse | null;
+    if (updatedOrder && getOrderId(updatedOrder)) {
+      upsertOrder(updatedOrder);
+      setActiveAlertOrderId((current) => (current === orderId && (updatedOrder.status ?? "").toUpperCase() !== "PAID" ? null : current));
+      setLatestNotification((current) =>
+        current && current.orderId === orderId
+          ? { ...current, type: "ORDER_STATUS_UPDATED", status: updatedOrder.status ?? nextStatus, order: updatedOrder }
+          : current,
+      );
+    }
+    setMessage(`Order ${order.orderNumber ?? orderId} status updated to ${nextStatus}.`);
+    setDialogError(null);
+  }
+
 
   function upsertOrder(order: CheckoutResponse) {
     const orderId = getOrderId(order);
@@ -454,6 +504,7 @@ export function OrderManager() {
         acceptingId={acceptingId}
         error={dialogError}
         order={detailOrder}
+        updatingStatusId={updatingStatusId}
         onAccept={(order, requestedPickupTime) => void acceptOrder(order, requestedPickupTime)}
         onOpenChange={(open) => {
           if (!open) {
@@ -461,6 +512,7 @@ export function OrderManager() {
             setDialogError(null);
           }
         }}
+        onUpdateStatus={(order, nextStatus, note) => void updateOrderStatus(order, nextStatus, note)}
       />
     </div>
   );
@@ -482,23 +534,31 @@ function ManagerOrderDetailsDialog({
   acceptingId,
   error,
   order,
+  updatingStatusId,
   onAccept,
   onOpenChange,
+  onUpdateStatus,
 }: {
   acceptingId: string | null;
   error: string | null;
   order: CheckoutResponse | null;
+  updatingStatusId: string | null;
   onAccept: (order: CheckoutResponse, requestedPickupTime?: string) => void;
   onOpenChange: (open: boolean) => void;
+  onUpdateStatus: (order: CheckoutResponse, nextStatus: OrderStatus, note?: string) => void;
 }) {
   const items = order?.items ?? [];
   const orderId = order ? getOrderId(order) : "";
   const [pickupTime, setPickupTime] = useState("");
+  const [statusDraft, setStatusDraft] = useState<OrderStatus>("PENDING");
+  const [statusNote, setStatusNote] = useState("");
   const isWaitingForAcceptance = (order?.status ?? "").toUpperCase() === "PAID";
 
   useEffect(() => {
     setPickupTime(toPickupTimeValue(order?.requestedPickupTime));
-  }, [order?.requestedPickupTime, orderId]);
+    setStatusDraft(normalizeOrderStatus(order?.status));
+    setStatusNote("");
+  }, [order?.requestedPickupTime, order?.status, orderId]);
 
   return (
     <Dialog open={Boolean(order)} onOpenChange={onOpenChange}>
@@ -525,6 +585,16 @@ function ManagerOrderDetailsDialog({
                   <p>{error}</p>
                 </div>
               ) : null}
+
+              <div className="rounded-md border border-slate-200">
+                <div className="border-b border-slate-200 bg-slate-100 px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Items</div>
+                <div className="divide-y divide-slate-200">
+                  {items.map((item, index) => (
+                    <OrderItemRow item={item} key={item.id ?? `${item.menuItemId}-${index}`} />
+                  ))}
+                  {items.length === 0 ? <div className="p-4 text-sm text-slate-500">No item snapshots returned.</div> : null}
+                </div>
+              </div>
 
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <SummaryTile label="Customer" value={getCustomerName(order)} />
@@ -573,13 +643,35 @@ function ManagerOrderDetailsDialog({
                 </div>
               ) : null}
 
-              <div className="rounded-md border border-slate-200">
-                <div className="border-b border-slate-200 bg-slate-100 px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Items</div>
-                <div className="divide-y divide-slate-200">
-                  {items.map((item, index) => (
-                    <OrderItemRow item={item} key={item.id ?? `${item.menuItemId}-${index}`} />
-                  ))}
-                  {items.length === 0 ? <div className="p-4 text-sm text-slate-500">No item snapshots returned.</div> : null}
+              <div className="rounded-md border border-slate-200 p-4">
+                <p className="text-sm font-semibold text-slate-950">Order status</p>
+                <div className="mt-3 grid gap-3 lg:grid-cols-[220px_1fr_auto] lg:items-end">
+                  <label className="block">
+                    <span className="text-sm font-semibold text-slate-700">Status</span>
+                    <select
+                      className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                      onChange={(event) => setStatusDraft(event.target.value as OrderStatus)}
+                      value={statusDraft}
+                    >
+                      {ORDER_STATUSES.map((item) => (
+                        <option key={item} value={item}>
+                          {formatStatus(item)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-semibold text-slate-700">Note</span>
+                    <input
+                      className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                      onChange={(event) => setStatusNote(event.target.value)}
+                      placeholder="Optional status note"
+                      value={statusNote}
+                    />
+                  </label>
+                  <Button disabled={updatingStatusId === orderId} onClick={() => onUpdateStatus(order, statusDraft, statusNote)} type="button">
+                    {updatingStatusId === orderId ? "Updating..." : "Update status"}
+                  </Button>
                 </div>
               </div>
 
@@ -634,8 +726,8 @@ function OrderListRow({
       type="button"
     >
       <div className="min-w-0">
-        <p className="truncate font-semibold text-slate-950">{order.orderNumber ?? getOrderId(order) ?? "Unknown order"}</p>
-        <p className="mt-1 truncate text-xs text-slate-500">{customerName}</p>
+        <p className="truncate font-semibold text-slate-950">{customerName}</p>
+        <p className="mt-1 truncate text-xs text-slate-500">{order.orderNumber ?? getOrderId(order) ?? "Unknown order"}</p>
         <p className="mt-1 text-xs text-slate-500">{formatDateTime(order.createdAt)}</p>
       </div>
       <div>
@@ -917,6 +1009,11 @@ function formatDateTime(value: string | null | undefined) {
 
 function formatStatus(value: string) {
   return value.replaceAll("_", " ");
+}
+
+function normalizeOrderStatus(value: string | null | undefined): OrderStatus {
+  const normalizedValue = (value ?? "").toUpperCase();
+  return ORDER_STATUSES.includes(normalizedValue as OrderStatus) ? normalizedValue as OrderStatus : "PENDING";
 }
 
 function formatOrderType(value: string | null | undefined) {
