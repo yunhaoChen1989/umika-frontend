@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, Bell, CheckCircle2, ClipboardList, Minus, Plus, RefreshCw, Search, Volume2 } from "lucide-react";
+import { AlertCircle, Bell, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Minus, Plus, RefreshCw, Search, Volume2 } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { Badge } from "@/components/ui/badge";
@@ -42,11 +42,13 @@ export function OrderManager() {
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [detailOrderId, setDetailOrderId] = useState("");
   const [emailQuery, setEmailQuery] = useState("");
+  const [emailFilter, setEmailFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [statusDrafts, setStatusDrafts] = useState<Record<string, OrderStatus>>({});
-  const [statusNotes, setStatusNotes] = useState<Record<string, string>>({});
+  const [pageNumber, setPageNumber] = useState(0);
+  const [pageSize] = useState(20);
+  const [totalElements, setTotalElements] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "unauthenticated" | "error">("idle");
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected");
   const [soundEnabled, setSoundEnabled] = useState(false);
@@ -57,10 +59,6 @@ export function OrderManager() {
   const [error, setError] = useState<string | null>(null);
   const activeAlertOrderIdRef = useRef<string | null>(null);
 
-  const selectedOrder = useMemo(
-    () => orders.find((order) => getOrderId(order) === selectedOrderId) ?? orders[0] ?? null,
-    [orders, selectedOrderId],
-  );
   const detailOrder = useMemo(
     () => orders.find((order) => getOrderId(order) === detailOrderId) ?? null,
     [orders, detailOrderId],
@@ -72,6 +70,9 @@ export function OrderManager() {
     setOrders([]);
     setSelectedOrderId("");
     setDetailOrderId("");
+    setPageNumber(0);
+    setTotalElements(0);
+    setTotalPages(0);
     setStatus("idle");
     setMessage(null);
     setError(null);
@@ -153,16 +154,7 @@ export function OrderManager() {
     };
   }, [locationContext, locationKey, soundEnabled]);
 
-  async function searchOrders(event?: FormEvent<HTMLFormElement>) {
-    event?.preventDefault();
-
-    const email = emailQuery.trim();
-
-    if (!email) {
-      setError("Enter a customer email to search orders.");
-      return;
-    }
-
+  const loadOrders = useCallback(async (page: number, email: string = emailFilter) => {
     setStatus("loading");
     setMessage(null);
     setError(null);
@@ -176,9 +168,12 @@ export function OrderManager() {
     }
 
     const url = new URL("/api/orders", window.location.origin);
-    url.searchParams.set("email", email);
-    url.searchParams.set("page", "0");
-    url.searchParams.set("size", "50");
+    const normalizedEmail = email.trim();
+    if (normalizedEmail) {
+      url.searchParams.set("email", normalizedEmail);
+    }
+    url.searchParams.set("page", String(Math.max(0, page)));
+    url.searchParams.set("size", String(pageSize));
     url.searchParams.set("sort", "createdAt,desc");
 
     if (locationId) {
@@ -207,61 +202,28 @@ export function OrderManager() {
 
     const body = (await response.json().catch(() => null)) as SpringPage<CheckoutResponse> | CheckoutResponse[] | null;
     const loadedOrders = Array.isArray(body) ? body : body?.content ?? [];
+    const nextPageNumber = Array.isArray(body) ? 0 : body?.number ?? page;
+    const nextTotalPages = Array.isArray(body) ? (loadedOrders.length > 0 ? 1 : 0) : body?.totalPages ?? 0;
 
     setOrders(loadedOrders);
-    setSelectedOrderId(getOrderId(loadedOrders[0]) ?? "");
+    setSelectedOrderId("");
     setDetailOrderId("");
-    setStatusDrafts(
-      Object.fromEntries(
-        loadedOrders
-          .map((order) => [getOrderId(order), (order.status ?? "PENDING") as OrderStatus])
-          .filter((entry): entry is [string, OrderStatus] => Boolean(entry[0])),
-      ),
-    );
+    setPageNumber(nextPageNumber);
+    setTotalElements(Array.isArray(body) ? loadedOrders.length : body?.totalElements ?? loadedOrders.length);
+    setTotalPages(nextTotalPages);
     setStatus(loadedOrders.length > 0 ? "ready" : "idle");
-    setMessage(loadedOrders.length === 0 ? "No orders found for that email." : null);
-  }
+    setMessage(loadedOrders.length === 0 ? "No orders found." : null);
+  }, [emailFilter, locationContext, pageSize, statusFilter]);
 
-  async function updateOrderStatus(order: CheckoutResponse) {
-    const orderId = getOrderId(order);
+  useEffect(() => {
+    void loadOrders(0, emailFilter);
+  }, [emailFilter, loadOrders, locationKey, statusFilter]);
 
-    if (!orderId) {
-      return;
-    }
-
-    const nextStatus = statusDrafts[orderId] ?? order.status ?? "PENDING";
-    const note = statusNotes[orderId]?.trim() || defaultStatusNote(nextStatus);
-
-    setUpdatingId(orderId);
-    setMessage(null);
-    setError(null);
-
-    const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/status`, {
-      method: "PATCH",
-      headers: {
-        ...getAuthHeaders(),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        status: nextStatus,
-        note,
-      }),
-      cache: "no-store",
-    }).catch(() => null);
-
-    setUpdatingId(null);
-
-    if (!response?.ok) {
-      const body = response ? await response.json().catch(() => null) : null;
-      setError(getApiErrorMessage(body, "Unable to update order status."));
-      return;
-    }
-
-    const updatedOrder = (await response.json().catch(() => null)) as CheckoutResponse | null;
-    setOrders((current) =>
-      current.map((item) => (getOrderId(item) === orderId ? updatedOrder && getOrderId(updatedOrder) ? updatedOrder : { ...item, status: nextStatus } : item)),
-    );
-    setMessage(`Order ${order.orderNumber ?? orderId} status updated to ${nextStatus}.`);
+  function searchOrders(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    const email = emailQuery.trim();
+    setEmailFilter(email);
+    void loadOrders(0, email);
   }
 
   async function acceptOrder(order: CheckoutResponse, requestedPickupTime?: string) {
@@ -328,10 +290,6 @@ export function OrderManager() {
       const nextOrders = exists ? current.map((item) => (getOrderId(item) === orderId ? order : item)) : [order, ...current];
       return nextOrders.slice(0, 50);
     });
-    setStatusDrafts((current) => ({
-      ...current,
-      [orderId]: (order.status ?? "PENDING") as OrderStatus,
-    }));
     setStatus((current) => (current === "unauthenticated" ? current : "ready"));
   }
 
@@ -399,7 +357,7 @@ export function OrderManager() {
 
       <Card className="rounded-md shadow-none">
         <CardHeader className="border-b border-slate-200">
-          <CardTitle className="text-base">Search orders</CardTitle>
+          <CardTitle className="text-base">Order filters</CardTitle>
         </CardHeader>
         <CardContent>
           <form className="grid gap-3 lg:grid-cols-[1fr_220px_auto]" onSubmit={(event) => void searchOrders(event)}>
@@ -408,7 +366,7 @@ export function OrderManager() {
               <input
                 className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
                 onChange={(event) => setEmailQuery(event.target.value)}
-                placeholder="customer@example.com"
+                placeholder="Optional customer email"
                 type="email"
                 value={emailQuery}
               />
@@ -431,9 +389,9 @@ export function OrderManager() {
             <div className="flex items-end gap-2">
               <Button className="w-full lg:w-auto" disabled={status === "loading"} type="submit">
                 <Search className="h-4 w-4" />
-                {status === "loading" ? "Searching..." : "Search"}
+                {status === "loading" ? "Loading..." : "Apply"}
               </Button>
-              <Button className="w-full lg:w-auto" disabled={!emailQuery.trim() || status === "loading"} onClick={() => void searchOrders()} type="button" variant="outline">
+              <Button className="w-full lg:w-auto" disabled={status === "loading"} onClick={() => void loadOrders(pageNumber, emailFilter)} type="button" variant="outline">
                 <RefreshCw className="h-4 w-4" />
                 Refresh
               </Button>
@@ -442,147 +400,56 @@ export function OrderManager() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-6 2xl:grid-cols-[460px_1fr]">
-        <Card className="overflow-hidden rounded-md shadow-none">
-          <CardHeader className="border-b border-slate-200">
+      <Card className="overflow-hidden rounded-md shadow-none">
+        <CardHeader className="border-b border-slate-200">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle className="flex items-center gap-2 text-base">
               <ClipboardList className="h-4 w-4 text-primary" />
               Orders
             </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {orders.length === 0 ? (
-              <div className="p-5 text-sm text-slate-500">Live paid orders appear here. You can also search by customer email.</div>
-            ) : (
-              <div className="max-h-[720px] overflow-y-auto">
-                {orders.map((order) => {
-                  const orderId = getOrderId(order) ?? "";
-                  const isSelected = getOrderId(selectedOrder) === orderId;
-
-                  return (
-                    <button
-                      className={cn(
-                        "block w-full border-b border-slate-200 px-5 py-4 text-left transition-colors hover:bg-slate-50",
-                        isSelected && "bg-primary/5",
-                      )}
-                      key={orderId || order.orderNumber || Math.random()}
-                      onClick={() => {
-                        setSelectedOrderId(orderId);
-                        setDetailOrderId(orderId);
-                      }}
-                      type="button"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate font-semibold text-slate-950">{order.orderNumber ?? orderId}</p>
-                          <p className="mt-1 text-xs text-slate-500">{formatDateTime(order.createdAt)}</p>
-                        </div>
-                        <StatusBadge status={order.status ?? "PENDING"} />
-                      </div>
-                      <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-slate-500">
-                        <span>{formatOrderType(order.orderType)}</span>
-                        <span>{order.items?.length ?? 0} items</span>
-                        <span className="text-right font-semibold text-slate-900">{formatMoney(order.finalTotal ?? order.total)}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="overflow-hidden rounded-md shadow-none">
-          <CardHeader className="border-b border-slate-200">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <CardTitle className="text-base">Order detail</CardTitle>
-                <p className="mt-2 text-sm text-slate-500">
-                  Backend totals, item snapshots, taxes, discounts, and status are displayed as returned.
-                </p>
-              </div>
-              {selectedOrder ? <StatusBadge status={selectedOrder.status ?? "PENDING"} /> : null}
+            <p className="text-sm text-slate-500">
+              {totalElements} total{emailFilter ? ` for ${emailFilter}` : ""}
+            </p>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {orders.length === 0 ? (
+            <div className="p-5 text-sm text-slate-500">No orders found. Adjust filters or wait for live paid orders.</div>
+          ) : (
+            <div className="divide-y divide-slate-200">
+              {orders.map((order) => {
+                const orderId = getOrderId(order);
+                return (
+                  <OrderListRow
+                    key={orderId || order.orderNumber || Math.random()}
+                    onOpen={() => {
+                      setSelectedOrderId(orderId);
+                      setDetailOrderId(orderId);
+                    }}
+                    order={order}
+                    selected={orderId === selectedOrderId}
+                  />
+                );
+              })}
             </div>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            {!selectedOrder ? (
-              <div className="rounded-md border border-slate-200 p-5 text-sm text-slate-500">Select an order to inspect.</div>
-            ) : (
-              <>
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <SummaryTile label="Order number" value={selectedOrder.orderNumber ?? getOrderId(selectedOrder) ?? "Unknown"} />
-                  <SummaryTile label="Type" value={formatOrderType(selectedOrder.orderType)} />
-                  <SummaryTile label="Subtotal" value={formatMoney(selectedOrder.subtotal)} />
-                  <SummaryTile label="Final total" value={formatMoney(selectedOrder.finalTotal ?? selectedOrder.total)} />
-                </div>
-                <Button type="button" variant="outline" onClick={() => setDetailOrderId(getOrderId(selectedOrder))}>
-                  View details
-                </Button>
-
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <SummaryTile label="Discount" value={formatMoney(selectedOrder.totalDiscount)} />
-                  <SummaryTile label="Reward discount" value={formatMoney(selectedOrder.rewardDiscountAmount)} />
-                  <SummaryTile label="Tax" value={`${formatMoney(selectedOrder.taxAmount ?? selectedOrder.tax)} / ${formatPercent(selectedOrder.taxRate)}`} />
-                  <SummaryTile label="Points" value={`${selectedOrder.pointsRedeemed ?? 0} redeemed / ${selectedOrder.pointsEarned ?? 0} earned`} />
-                </div>
-
-                <div className="rounded-md border border-slate-200 p-4">
-                  <p className="text-sm font-semibold text-slate-950">Status update</p>
-                  <div className="mt-3 grid gap-3 lg:grid-cols-[220px_1fr_auto]">
-                    <select
-                      className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                      onChange={(event) =>
-                        setStatusDrafts((current) => ({
-                          ...current,
-                          [getOrderId(selectedOrder) ?? ""]: event.target.value as OrderStatus,
-                        }))
-                      }
-                      value={statusDrafts[getOrderId(selectedOrder) ?? ""] ?? selectedOrder.status ?? "PENDING"}
-                    >
-                      {ORDER_STATUSES.map((item) => (
-                        <option key={item} value={item}>
-                          {formatStatus(item)}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                      onChange={(event) =>
-                        setStatusNotes((current) => ({
-                          ...current,
-                          [getOrderId(selectedOrder) ?? ""]: event.target.value,
-                        }))
-                      }
-                      placeholder="Optional status note"
-                      value={statusNotes[getOrderId(selectedOrder) ?? ""] ?? ""}
-                    />
-                    <Button disabled={updatingId === getOrderId(selectedOrder)} onClick={() => void updateOrderStatus(selectedOrder)} type="button">
-                      {updatingId === getOrderId(selectedOrder) ? "Updating..." : "Update status"}
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="rounded-md border border-slate-200">
-                  <div className="border-b border-slate-200 bg-slate-100 px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Items</div>
-                  <div className="divide-y divide-slate-200">
-                    {(selectedOrder.items ?? []).map((item, index) => (
-                      <OrderItemRow item={item} key={item.id ?? `${item.menuItemId}-${index}`} />
-                    ))}
-                    {(selectedOrder.items ?? []).length === 0 ? <div className="p-4 text-sm text-slate-500">No item snapshots returned.</div> : null}
-                  </div>
-                </div>
-
-                {selectedOrder.customerNote ? (
-                  <div className="rounded-md border border-slate-200 p-4">
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Customer note</p>
-                    <p className="mt-2 text-sm text-slate-700">{selectedOrder.customerNote}</p>
-                  </div>
-                ) : null}
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          )}
+          <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-slate-500">
+              Page {totalPages === 0 ? 0 : pageNumber + 1} of {totalPages}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button disabled={status === "loading" || pageNumber <= 0} onClick={() => void loadOrders(pageNumber - 1, emailFilter)} type="button" variant="outline">
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </Button>
+              <Button disabled={status === "loading" || pageNumber + 1 >= totalPages} onClick={() => void loadOrders(pageNumber + 1, emailFilter)} type="button" variant="outline">
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
       <ManagerOrderDetailsDialog
         acceptingId={acceptingId}
         error={dialogError}
@@ -739,6 +606,53 @@ function OrderItemRow({ item }: { item: CheckoutOrderItemResponse }) {
       <p className="text-slate-600">{formatMoney(item.unitPrice)}</p>
       <p className="font-semibold text-slate-950">{formatMoney(item.lineTotal ?? item.totalPrice)}</p>
     </div>
+  );
+}
+
+function OrderListRow({
+  order,
+  selected,
+  onOpen,
+}: {
+  order: CheckoutResponse;
+  selected: boolean;
+  onOpen: () => void;
+}) {
+  const itemCount = order.items?.reduce((total, item) => total + Number(item.quantity ?? 0), 0) ?? 0;
+  const pickupTime = order.requestedPickupTime ? formatDateTime(order.requestedPickupTime) : "Not set";
+
+  return (
+    <button
+      className={cn(
+        "grid w-full gap-3 px-5 py-4 text-left transition-colors hover:bg-slate-50 lg:grid-cols-[1.2fr_130px_110px_130px_150px] lg:items-center",
+        selected && "bg-primary/5",
+      )}
+      onClick={onOpen}
+      type="button"
+    >
+      <div className="min-w-0">
+        <p className="truncate font-semibold text-slate-950">{order.orderNumber ?? getOrderId(order) ?? "Unknown order"}</p>
+        <p className="mt-1 text-xs text-slate-500">{formatDateTime(order.createdAt)}</p>
+      </div>
+      <div>
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Status</p>
+        <div className="mt-1">
+          <StatusBadge status={order.status ?? "PENDING"} />
+        </div>
+      </div>
+      <div>
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Items</p>
+        <p className="mt-1 text-sm font-semibold text-slate-950">{itemCount}</p>
+      </div>
+      <div>
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Total</p>
+        <p className="mt-1 text-sm font-semibold text-slate-950">{formatMoney(order.finalTotal ?? order.total)}</p>
+      </div>
+      <div>
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Pickup</p>
+        <p className="mt-1 truncate text-sm text-slate-700">{pickupTime}</p>
+      </div>
+    </button>
   );
 }
 
@@ -961,10 +875,6 @@ function getApiErrorMessage(body: unknown, fallback: string) {
   }
 
   return fallback;
-}
-
-function defaultStatusNote(status: string) {
-  return status === "PAID" ? "Payment confirmed" : `Status updated to ${status}`;
 }
 
 function formatMoney(value: unknown) {
