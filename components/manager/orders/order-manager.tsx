@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, Bell, CheckCircle2, ClipboardList, RefreshCw, Search, Volume2 } from "lucide-react";
+import { AlertCircle, Bell, CheckCircle2, ClipboardList, Minus, Plus, RefreshCw, Search, Volume2 } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +24,7 @@ type SpringPage<T> = {
 };
 
 const ORDER_STATUSES: OrderStatus[] = ["PENDING", "PAID", "PREPARING", "READY", "COMPLETED", "CANCELLED"];
-const BACKEND_API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080/api/v1").replace(/\/$/, "");
+const ORDER_NOTIFICATION_WS_PREFIX = (process.env.NEXT_PUBLIC_ORDER_NOTIFICATION_WS_PREFIX ?? "/api/v1").replace(/\/$/, "");
 
 const statusClasses: Record<string, string> = {
   PENDING: "border-amber-200 bg-amber-50 text-amber-800",
@@ -52,6 +52,7 @@ export function OrderManager() {
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [activeAlertOrderId, setActiveAlertOrderId] = useState<string | null>(null);
   const [latestNotification, setLatestNotification] = useState<OrderNotificationPayload | null>(null);
+  const [dialogError, setDialogError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const activeAlertOrderIdRef = useRef<string | null>(null);
@@ -74,6 +75,7 @@ export function OrderManager() {
     setStatus("idle");
     setMessage(null);
     setError(null);
+    setDialogError(null);
   }, [locationKey]);
 
   useEffect(() => {
@@ -272,6 +274,7 @@ export function OrderManager() {
     setAcceptingId(orderId);
     setMessage(null);
     setError(null);
+    setDialogError(null);
 
     const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/status`, {
       method: "PATCH",
@@ -281,7 +284,7 @@ export function OrderManager() {
       },
       body: JSON.stringify({
         status: "PREPARING",
-        note: "Accepted by staff from live notification",
+        note: "Accepted by staff. Pickup time confirmed.",
         requestedPickupTime: requestedPickupTime || undefined,
       }),
       cache: "no-store",
@@ -291,7 +294,9 @@ export function OrderManager() {
 
     if (!response?.ok) {
       const body = response ? await response.json().catch(() => null) : null;
-      setError(getApiErrorMessage(body, "Unable to accept order."));
+      const message = getApiErrorMessage(body, "Unable to accept order.");
+      setError(message);
+      setDialogError(message);
       return;
     }
 
@@ -318,6 +323,7 @@ export function OrderManager() {
     setPickupUpdatingId(orderId);
     setMessage(null);
     setError(null);
+    setDialogError(null);
 
     const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/status`, {
       method: "PATCH",
@@ -337,7 +343,9 @@ export function OrderManager() {
 
     if (!response?.ok) {
       const body = response ? await response.json().catch(() => null) : null;
-      setError(getApiErrorMessage(body, "Unable to update pickup time."));
+      const message = getApiErrorMessage(body, "Unable to update pickup time.");
+      setError(message);
+      setDialogError(message);
       return;
     }
 
@@ -618,12 +626,14 @@ export function OrderManager() {
       </div>
       <ManagerOrderDetailsDialog
         acceptingId={acceptingId}
+        error={dialogError}
         order={detailOrder}
         onAccept={(order, requestedPickupTime) => void acceptOrder(order, requestedPickupTime)}
         onPickupTimeUpdate={(order, requestedPickupTime) => void updatePickupTime(order, requestedPickupTime)}
         onOpenChange={(open) => {
           if (!open) {
             setDetailOrderId("");
+            setDialogError(null);
           }
         }}
         pickupUpdatingId={pickupUpdatingId}
@@ -646,6 +656,7 @@ type OrderNotificationPayload = {
 
 function ManagerOrderDetailsDialog({
   acceptingId,
+  error,
   order,
   onAccept,
   onPickupTimeUpdate,
@@ -653,6 +664,7 @@ function ManagerOrderDetailsDialog({
   pickupUpdatingId,
 }: {
   acceptingId: string | null;
+  error: string | null;
   order: CheckoutResponse | null;
   onAccept: (order: CheckoutResponse, requestedPickupTime?: string) => void;
   onPickupTimeUpdate: (order: CheckoutResponse, requestedPickupTime?: string) => void;
@@ -665,7 +677,7 @@ function ManagerOrderDetailsDialog({
   const isWaitingForAcceptance = (order?.status ?? "").toUpperCase() === "PAID";
 
   useEffect(() => {
-    setPickupTime(toDatetimeLocalValue(order?.requestedPickupTime));
+    setPickupTime(toPickupTimeValue(order?.requestedPickupTime));
   }, [order?.requestedPickupTime, orderId]);
 
   return (
@@ -687,6 +699,13 @@ function ManagerOrderDetailsDialog({
                 </span>
               </div>
 
+              {error ? (
+                <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>{error}</p>
+                </div>
+              ) : null}
+
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <SummaryTile label="Order number" value={order.orderNumber ?? orderId ?? "Unknown"} />
                 <SummaryTile label="Type" value={formatOrderType(order.orderType)} />
@@ -703,25 +722,33 @@ function ManagerOrderDetailsDialog({
                   <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
                     <label className="block">
                       <span className="text-sm font-semibold text-slate-700">Pickup time</span>
-                      <input
-                        className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                        onChange={(event) => setPickupTime(event.target.value)}
-                        type="datetime-local"
-                        value={pickupTime}
-                      />
+                      <div className="mt-2 grid grid-cols-[40px_1fr_40px] gap-2">
+                        <Button aria-label="Subtract 5 minutes" onClick={() => setPickupTime((current) => adjustPickupTimeValue(current, -5))} size="icon" type="button" variant="outline">
+                          <Minus className="h-4 w-4" />
+                        </Button>
+                        <input
+                          className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-center text-sm font-semibold outline-none focus:ring-2 focus:ring-ring"
+                          onChange={(event) => setPickupTime(event.target.value)}
+                          type="time"
+                          value={pickupTime}
+                        />
+                        <Button aria-label="Add 5 minutes" onClick={() => setPickupTime((current) => adjustPickupTimeValue(current, 5))} size="icon" type="button" variant="outline">
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </label>
                     {isWaitingForAcceptance ? (
-                      <Button disabled={acceptingId === orderId} onClick={() => onAccept(order, fromDatetimeLocalValue(pickupTime))} type="button">
+                      <Button disabled={acceptingId === orderId} onClick={() => onAccept(order, fromPickupTimeValue(pickupTime, order.requestedPickupTime))} type="button">
                         {acceptingId === orderId ? "Accepting..." : "Accept order"}
                       </Button>
                     ) : (
-                      <Button disabled={pickupUpdatingId === orderId} onClick={() => onPickupTimeUpdate(order, fromDatetimeLocalValue(pickupTime))} type="button" variant="outline">
+                      <Button disabled={pickupUpdatingId === orderId} onClick={() => onPickupTimeUpdate(order, fromPickupTimeValue(pickupTime, order.requestedPickupTime))} type="button" variant="outline">
                         {pickupUpdatingId === orderId ? "Saving..." : "Save pickup time"}
                       </Button>
                     )}
                   </div>
                   {isWaitingForAcceptance ? (
-                    <p className="mt-2 text-xs text-slate-500">Confirm or adjust the pickup time before accepting.</p>
+                    <p className="mt-2 text-xs text-slate-500">Adjust the pickup time if needed, then accept to confirm it for the customer.</p>
                   ) : null}
                 </div>
               ) : isWaitingForAcceptance ? (
@@ -799,10 +826,9 @@ function getAuthHeaders() {
 }
 
 function buildOrderNotificationWsUrl(locationId: string) {
-  const baseUrl = new URL(BACKEND_API_BASE_URL);
+  const baseUrl = new URL(window.location.href);
   baseUrl.protocol = baseUrl.protocol === "https:" ? "wss:" : "ws:";
-  const apiPath = baseUrl.pathname.replace(/\/$/, "");
-  baseUrl.pathname = `${apiPath}/manager/order-notifications/ws`;
+  baseUrl.pathname = `${ORDER_NOTIFICATION_WS_PREFIX}/manager/order-notifications/ws`;
   baseUrl.search = "";
 
   if (locationId) {
@@ -865,26 +891,59 @@ function formatNotificationType(payload: OrderNotificationPayload) {
   return `Status ${payload.status ?? "updated"}`;
 }
 
-function toDatetimeLocalValue(value: string | null | undefined) {
+function toPickupTimeValue(value: string | null | undefined) {
   if (!value) {
     return "";
   }
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return value.slice(0, 16);
+    return value.slice(11, 16);
   }
 
-  const offsetMs = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
-function fromDatetimeLocalValue(value: string) {
+function adjustPickupTimeValue(value: string, deltaMinutes: number) {
+  const [rawHours, rawMinutes] = value ? value.split(":") : [];
+  const date = new Date();
+  const hours = Number(rawHours);
+  const minutes = Number(rawMinutes);
+
+  if (Number.isFinite(hours) && Number.isFinite(minutes)) {
+    date.setHours(hours, minutes, 0, 0);
+  } else {
+    date.setSeconds(0, 0);
+  }
+
+  date.setMinutes(date.getMinutes() + deltaMinutes);
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function fromPickupTimeValue(value: string, existingPickupTime: string | null | undefined) {
   if (!value) {
     return undefined;
   }
 
-  return value.length === 16 ? `${value}:00` : value;
+  const baseDate = existingPickupTime ? new Date(existingPickupTime) : new Date();
+  const date = Number.isNaN(baseDate.getTime()) ? new Date() : baseDate;
+  const [hours, minutes] = value.split(":").map((part) => Number(part));
+
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return undefined;
+  }
+
+  date.setHours(hours, minutes, 0, 0);
+  return toLocalDateTimePayload(date);
+}
+
+function toLocalDateTimePayload(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}:00`;
 }
 
 function getStoredLocationContext(searchParams?: URLSearchParams | ReadonlyURLSearchParamsLike) {
@@ -946,6 +1005,12 @@ function getOrderId(order: CheckoutResponse | null | undefined) {
 function getApiErrorMessage(body: unknown, fallback: string) {
   if (body && typeof body === "object" && "message" in body && typeof body.message === "string") {
     return body.message;
+  }
+  if (body && typeof body === "object" && "error" in body && body.error && typeof body.error === "object") {
+    const error = body.error as { message?: unknown };
+    if (typeof error.message === "string" && error.message.trim()) {
+      return error.message;
+    }
   }
 
   return fallback;
