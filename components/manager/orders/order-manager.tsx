@@ -24,6 +24,7 @@ type SpringPage<T> = {
 };
 
 const ORDER_STATUSES: OrderStatus[] = ["PENDING", "PAID", "PREPARING", "READY", "COMPLETED", "CANCELLED"];
+const ORDER_NOTIFICATION_WS_URL = process.env.NEXT_PUBLIC_ORDER_NOTIFICATION_WS_URL?.trim();
 const ORDER_NOTIFICATION_WS_PREFIX = (process.env.NEXT_PUBLIC_ORDER_NOTIFICATION_WS_PREFIX ?? "/api/v1").replace(/\/$/, "");
 
 const statusClasses: Record<string, string> = {
@@ -47,7 +48,6 @@ export function OrderManager() {
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "unauthenticated" | "error">("idle");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
-  const [pickupUpdatingId, setPickupUpdatingId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected");
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [activeAlertOrderId, setActiveAlertOrderId] = useState<string | null>(null);
@@ -311,49 +311,8 @@ export function OrderManager() {
       );
     }
     setMessage(`Order ${order.orderNumber ?? orderId} accepted.`);
-  }
-
-  async function updatePickupTime(order: CheckoutResponse, requestedPickupTime?: string) {
-    const orderId = getOrderId(order);
-
-    if (!orderId || !requestedPickupTime) {
-      return;
-    }
-
-    setPickupUpdatingId(orderId);
-    setMessage(null);
-    setError(null);
     setDialogError(null);
-
-    const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/status`, {
-      method: "PATCH",
-      headers: {
-        ...getAuthHeaders(),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        status: order.status ?? "PREPARING",
-        note: "Pickup time updated by staff",
-        requestedPickupTime,
-      }),
-      cache: "no-store",
-    }).catch(() => null);
-
-    setPickupUpdatingId(null);
-
-    if (!response?.ok) {
-      const body = response ? await response.json().catch(() => null) : null;
-      const message = getApiErrorMessage(body, "Unable to update pickup time.");
-      setError(message);
-      setDialogError(message);
-      return;
-    }
-
-    const updatedOrder = (await response.json().catch(() => null)) as CheckoutResponse | null;
-    if (updatedOrder && getOrderId(updatedOrder)) {
-      upsertOrder(updatedOrder);
-    }
-    setMessage(`Order ${order.orderNumber ?? orderId} pickup time updated.`);
+    setDetailOrderId("");
   }
 
 
@@ -629,14 +588,12 @@ export function OrderManager() {
         error={dialogError}
         order={detailOrder}
         onAccept={(order, requestedPickupTime) => void acceptOrder(order, requestedPickupTime)}
-        onPickupTimeUpdate={(order, requestedPickupTime) => void updatePickupTime(order, requestedPickupTime)}
         onOpenChange={(open) => {
           if (!open) {
             setDetailOrderId("");
             setDialogError(null);
           }
         }}
-        pickupUpdatingId={pickupUpdatingId}
       />
     </div>
   );
@@ -659,17 +616,13 @@ function ManagerOrderDetailsDialog({
   error,
   order,
   onAccept,
-  onPickupTimeUpdate,
   onOpenChange,
-  pickupUpdatingId,
 }: {
   acceptingId: string | null;
   error: string | null;
   order: CheckoutResponse | null;
   onAccept: (order: CheckoutResponse, requestedPickupTime?: string) => void;
-  onPickupTimeUpdate: (order: CheckoutResponse, requestedPickupTime?: string) => void;
   onOpenChange: (open: boolean) => void;
-  pickupUpdatingId: string | null;
 }) {
   const items = order?.items ?? [];
   const orderId = order ? getOrderId(order) : "";
@@ -717,7 +670,7 @@ function ManagerOrderDetailsDialog({
                 <SummaryTile label="Points" value={`${order.pointsRedeemed ?? 0} redeemed / ${order.pointsEarned ?? 0} earned`} />
               </div>
 
-              {order.orderType === "PICKUP" ? (
+              {order.orderType === "PICKUP" && isWaitingForAcceptance ? (
                 <div className="rounded-md border border-slate-200 p-4">
                   <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
                     <label className="block">
@@ -737,19 +690,11 @@ function ManagerOrderDetailsDialog({
                         </Button>
                       </div>
                     </label>
-                    {isWaitingForAcceptance ? (
-                      <Button disabled={acceptingId === orderId} onClick={() => onAccept(order, fromPickupTimeValue(pickupTime, order.requestedPickupTime))} type="button">
-                        {acceptingId === orderId ? "Accepting..." : "Accept order"}
-                      </Button>
-                    ) : (
-                      <Button disabled={pickupUpdatingId === orderId} onClick={() => onPickupTimeUpdate(order, fromPickupTimeValue(pickupTime, order.requestedPickupTime))} type="button" variant="outline">
-                        {pickupUpdatingId === orderId ? "Saving..." : "Save pickup time"}
-                      </Button>
-                    )}
+                    <Button disabled={acceptingId === orderId} onClick={() => onAccept(order, fromPickupTimeValue(pickupTime, order.requestedPickupTime))} type="button">
+                      {acceptingId === orderId ? "Accepting..." : "Accept order"}
+                    </Button>
                   </div>
-                  {isWaitingForAcceptance ? (
-                    <p className="mt-2 text-xs text-slate-500">Adjust the pickup time if needed, then accept to confirm it for the customer.</p>
-                  ) : null}
+                  <p className="mt-2 text-xs text-slate-500">Adjust the pickup time if needed, then accept to confirm it for the customer.</p>
                 </div>
               ) : isWaitingForAcceptance ? (
                 <div className="rounded-md border border-slate-200 p-4">
@@ -826,10 +771,12 @@ function getAuthHeaders() {
 }
 
 function buildOrderNotificationWsUrl(locationId: string) {
-  const baseUrl = new URL(window.location.href);
+  const baseUrl = new URL(
+    ORDER_NOTIFICATION_WS_URL ||
+      `${ORDER_NOTIFICATION_WS_PREFIX}/manager/order-notifications/ws`,
+    window.location.href,
+  );
   baseUrl.protocol = baseUrl.protocol === "https:" ? "wss:" : "ws:";
-  baseUrl.pathname = `${ORDER_NOTIFICATION_WS_PREFIX}/manager/order-notifications/ws`;
-  baseUrl.search = "";
 
   if (locationId) {
     baseUrl.searchParams.set("locationId", locationId);

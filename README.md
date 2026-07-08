@@ -33,21 +33,42 @@ NEXT_PUBLIC_ORDER_NOTIFICATION_WS_PREFIX=/api/v1
 NEXT_PUBLIC_SITE_URL=https://umikasushi.ca
 ```
 
-`NEXT_PUBLIC_ORDER_NOTIFICATION_WS_PREFIX` is a public same-origin prefix. In production the browser connects to
-`wss://umikasushi.ca/api/v1/manager/order-notifications/ws`, so port `8080` does not need to be public.
+For local development, `next.config.ts` proxies `/api/v1/*` to `http://localhost:8080/api/v1/*`.
+The manager order notification socket therefore connects through the Next dev server at
+`ws://localhost:3000/api/v1/manager/order-notifications/ws`.
+
+`NEXT_PUBLIC_ORDER_NOTIFICATION_WS_URL` can still be set later as an explicit public WebSocket URL.
+If it is not set, the frontend falls back to `NEXT_PUBLIC_ORDER_NOTIFICATION_WS_PREFIX`, producing a same-origin URL like
+`wss://umikasushi.ca/api/v1/manager/order-notifications/ws` in production. Port `8080` does not need to be public.
 
 Example Nginx proxy for the Spring Boot WebSocket endpoint:
 
 ```nginx
-location /api/v1/ {
-  proxy_pass http://127.0.0.1:8080/api/v1/;
+map $http_upgrade $connection_upgrade {
+  default upgrade;
+  '' close;
+}
+
+# Put this before the general Next.js location.
+location /api/v1/manager/order-notifications/ws {
+  proxy_pass http://127.0.0.1:8080/api/v1/manager/order-notifications/ws;
   proxy_http_version 1.1;
   proxy_set_header Host $host;
   proxy_set_header X-Real-IP $remote_addr;
   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
   proxy_set_header X-Forwarded-Proto $scheme;
   proxy_set_header Upgrade $http_upgrade;
-  proxy_set_header Connection "upgrade";
+  proxy_set_header Connection $connection_upgrade;
+  proxy_read_timeout 3600s;
+  proxy_send_timeout 3600s;
+}
+
+location /api/v1/ {
+  proxy_pass http://127.0.0.1:8080/api/v1/;
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
 }
 ```
 
