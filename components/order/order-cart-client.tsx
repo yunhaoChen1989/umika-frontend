@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { CreditCard, Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -13,12 +13,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { StripePaymentSection } from "@/components/order/stripe-payment-section";
 import { cartIdKeyPrefix, getAuthHeaders, getOrCreateGuestSessionId, loadOrCreateCart, normalizeCart, normalizePayload, notifyCartChanged } from "@/lib/cart-client";
 import type { CartResponse, CheckoutResponse, RedemptionPreviewResponse } from "@/lib/cart-types";
+import { getLoginRedirectHref } from "@/lib/auth-redirect";
 import type { Dictionary } from "@/lib/i18n";
 import { resolveBackendMediaUrl } from "@/lib/media-url";
 import { flattenMenuCatalog, type ResolvedMenuItem } from "@/lib/menu-catalog";
 import type { MenuCatalogResponse } from "@/lib/menu-management-types";
 
 export function OrderCartClient({ copy }: { copy: Dictionary }) {
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [menuItems, setMenuItems] = useState<ResolvedMenuItem[]>([]);
   const [cart, setCart] = useState<CartResponse | null>(null);
@@ -279,7 +281,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
     }
   }
 
-  async function previewRedemption() {
+  async function previewRedemption({ redirectOnAuthError = false }: { redirectOnAuthError?: boolean } = {}) {
     if (!cart?.id) {
       return null;
     }
@@ -300,6 +302,17 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
 
     if (!response?.ok) {
       const body = response ? await response.json().catch(() => null) : null;
+
+      if (response?.status === 401 || response?.status === 403) {
+        setRedemptionPreview(null);
+
+        if (redirectOnAuthError) {
+          window.location.assign(getLoginRedirectHref(getCurrentPath(pathname, searchParams)));
+        }
+
+        return null;
+      }
+
       setMessage(resolveErrorMessage(body, copy.orderPage.previewError));
       setRedemptionPreview(null);
       return null;
@@ -315,11 +328,16 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
       return;
     }
 
+    if (!localStorage.getItem("umika_access_token")) {
+      window.location.assign(getLoginRedirectHref(getCurrentPath(pathname, searchParams)));
+      return;
+    }
+
     setIsCheckingOut(true);
     setMessage(null);
     setCheckoutResult(null);
 
-    const preview = await previewRedemption();
+    const preview = await previewRedemption({ redirectOnAuthError: true });
 
     if (!preview) {
       setIsCheckingOut(false);
@@ -366,6 +384,12 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
 
     if (!response?.ok) {
       const body = response ? await response.json().catch(() => null) : null;
+
+      if (response?.status === 401 || response?.status === 403) {
+        window.location.assign(getLoginRedirectHref(getCurrentPath(pathname, searchParams)));
+        return;
+      }
+
       setMessage(resolveErrorMessage(body, copy.orderPage.checkoutError));
       return;
     }
@@ -870,3 +894,12 @@ function formatPickupDateTime(value: string | null | undefined) {
 function isPaidOrderStatus(value: unknown) {
   return typeof value === "string" && ["PAID", "COMPLETED"].includes(value.toUpperCase());
 }
+
+function getCurrentPath(pathname: string, searchParams: URLSearchParams | ReadonlyURLSearchParamsLike) {
+  const query = searchParams.toString();
+  return `${pathname}${query ? `?${query}` : ""}`;
+}
+
+type ReadonlyURLSearchParamsLike = {
+  toString: () => string;
+};

@@ -34,7 +34,7 @@ export function Hero({ locale }: { locale: Locale }) {
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Button asChild size="lg" className="w-full sm:w-auto">
-              <Link href="/order">
+              <Link href="/menu">
                 {dict.home.startOrder}
                 <ArrowRight className="h-4 w-4" />
               </Link>

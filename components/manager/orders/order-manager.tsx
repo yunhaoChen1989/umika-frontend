@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, Bell, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Minus, Plus, RefreshCw, Search, Volume2 } from "lucide-react";
+import { AlertCircle, Bell, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Minus, Plus, Printer, RefreshCw, Search, Volume2 } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { Badge } from "@/components/ui/badge";
@@ -52,13 +52,14 @@ export function OrderManager() {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected");
-  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
   const [activeAlertOrderId, setActiveAlertOrderId] = useState<string | null>(null);
   const [latestNotification, setLatestNotification] = useState<OrderNotificationPayload | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const activeAlertOrderIdRef = useRef<string | null>(null);
+  const startupSoundAttemptedRef = useRef(false);
 
   const detailOrder = useMemo(
     () => orders.find((order) => getOrderId(order) === detailOrderId) ?? null,
@@ -83,6 +84,15 @@ export function OrderManager() {
   useEffect(() => {
     activeAlertOrderIdRef.current = activeAlertOrderId;
   }, [activeAlertOrderId]);
+
+  useEffect(() => {
+    if (!soundEnabled || startupSoundAttemptedRef.current) {
+      return;
+    }
+
+    startupSoundAttemptedRef.current = true;
+    playOrderNotificationSound(true);
+  }, [soundEnabled]);
 
   useEffect(() => {
     if (!soundEnabled || !activeAlertOrderId) {
@@ -566,10 +576,15 @@ function ManagerOrderDetailsDialog({
         {order ? (
           <>
             <DialogHeader>
-              <DialogTitle>{order.orderNumber ?? orderId}</DialogTitle>
-              <DialogDescription>
-                {formatDateTime(order.createdAt)} · {formatOrderType(order.orderType)}
-              </DialogDescription>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <DialogTitle>{order.orderNumber ?? orderId}</DialogTitle>
+                  <DialogDescription>
+                    {formatDateTime(order.createdAt)} · {formatOrderType(order.orderType)}
+                  </DialogDescription>
+                </div>
+                <PrintOrderButton order={order} />
+              </div>
             </DialogHeader>
             <div className="space-y-5 p-5">
               <div className="flex flex-wrap items-center gap-2">
@@ -629,14 +644,18 @@ function ManagerOrderDetailsDialog({
                         </Button>
                       </div>
                     </label>
-                    <Button disabled={acceptingId === orderId} onClick={() => onAccept(order, fromPickupTimeValue(pickupTime, order.requestedPickupTime))} type="button">
-                      {acceptingId === orderId ? "Accepting..." : "Accept order"}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <PrintOrderButton order={order} />
+                      <Button disabled={acceptingId === orderId} onClick={() => onAccept(order, fromPickupTimeValue(pickupTime, order.requestedPickupTime))} type="button">
+                        {acceptingId === orderId ? "Accepting..." : "Accept order"}
+                      </Button>
+                    </div>
                   </div>
                   <p className="mt-2 text-xs text-slate-500">Adjust the pickup time if needed, then accept to confirm it for the customer.</p>
                 </div>
               ) : isWaitingForAcceptance ? (
-                <div className="rounded-md border border-slate-200 p-4">
+                <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 p-4">
+                  <PrintOrderButton order={order} />
                   <Button disabled={acceptingId === orderId} onClick={() => onAccept(order)} type="button">
                     {acceptingId === orderId ? "Accepting..." : "Accept order"}
                   </Button>
@@ -686,6 +705,21 @@ function ManagerOrderDetailsDialog({
         ) : null}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function PrintOrderButton({ order }: { order: CheckoutResponse }) {
+  return (
+    <Button
+      aria-label={`Print order ${order.orderNumber ?? getOrderId(order) ?? ""}`}
+      onClick={() => undefined}
+      size="icon"
+      title="Print order"
+      type="button"
+      variant="outline"
+    >
+      <Printer className="h-4 w-4" />
+    </Button>
   );
 }
 

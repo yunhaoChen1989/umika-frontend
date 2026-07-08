@@ -49,8 +49,9 @@ export function notifyCartChanged() {
 
 export async function loadOrCreateCart(locationId: string, sessionId: string, fallbackMessage: string) {
   const storedCartId = localStorage.getItem(`${cartIdKeyPrefix}:${locationId}`);
+  const isAuthenticated = Boolean(localStorage.getItem("umika_access_token"));
 
-  if (storedCartId) {
+  if (storedCartId && !isAuthenticated) {
     const response = await fetch(`/api/cart/${storedCartId}?sessionId=${encodeURIComponent(sessionId)}`, {
       method: "GET",
       headers: getAuthHeaders(),
