@@ -58,6 +58,8 @@ export type CheckoutResponse = {
   id?: string;
   orderId?: string;
   userId?: string | null;
+  customerName?: string | null;
+  customerEmail?: string | null;
   locationId?: string | null;
   addressId?: string | null;
   orderNumber?: string | null;

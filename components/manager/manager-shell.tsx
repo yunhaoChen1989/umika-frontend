@@ -44,6 +44,7 @@ export function ManagerShell({
   const dict = getDictionary(locale);
   const activeBranchCodes = useMemo(() => getActiveBranchCodes(menus, pathname), [menus, pathname]);
   const [expandedCodes, setExpandedCodes] = useState<Set<string>>(() => new Set(activeBranchCodes));
+  const [authStatus, setAuthStatus] = useState<"checking" | "authenticated" | "unauthenticated">("checking");
   const [accountName, setAccountName] = useState<string | null>(null);
   const [roleLabel, setRoleLabel] = useState<string | null>(null);
   const [location, setLocation] = useState<ManagerLocation | null>(null);
@@ -62,6 +63,8 @@ export function ManagerShell({
       if (!token) {
         setAccountName(null);
         setRoleLabel(null);
+        setAuthStatus("unauthenticated");
+        router.replace(getLoginRedirectHref(`${pathname}${window.location.search}`));
         return;
       }
 
@@ -80,12 +83,15 @@ export function ManagerShell({
       if (!response?.ok) {
         setAccountName(null);
         setRoleLabel(null);
+        setAuthStatus("unauthenticated");
+        router.replace(getLoginRedirectHref(`${pathname}${window.location.search}`));
         return;
       }
 
       const profile = (await response.json().catch(() => null)) as CurrentAccountProfile | null;
       setAccountName(resolveAccountName(profile));
       setRoleLabel(resolveRoleLabel(profile));
+      setAuthStatus("authenticated");
     }
 
     function refreshProfile() {
@@ -109,7 +115,7 @@ export function ManagerShell({
       window.removeEventListener("focus", refreshProfile);
       window.removeEventListener("storage", refreshProfileFromStorage);
     };
-  }, []);
+  }, [pathname, router]);
 
   useEffect(() => {
     let active = true;
@@ -273,6 +279,30 @@ export function ManagerShell({
       : location
         ? [location]
         : [];
+
+  if (authStatus === "checking") {
+    return (
+      <div className="grid min-h-screen place-items-center bg-slate-50 px-4 text-slate-950">
+        <div className="rounded-md border border-slate-200 bg-white px-5 py-4 text-sm font-semibold text-slate-700 shadow-sm">
+          Checking manager access...
+        </div>
+      </div>
+    );
+  }
+
+  if (authStatus === "unauthenticated") {
+    return (
+      <div className="grid min-h-screen place-items-center bg-slate-50 px-4 text-slate-950">
+        <div className="w-full max-w-md rounded-md border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-base font-semibold text-slate-950">Login required</p>
+          <p className="mt-2 text-sm text-slate-500">Please log in with a manager or staff account to open this page.</p>
+          <Button asChild className="mt-4 w-full">
+            <LoginRedirectLink>Login</LoginRedirectLink>
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">

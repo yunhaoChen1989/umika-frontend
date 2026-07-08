@@ -527,6 +527,8 @@ function ManagerOrderDetailsDialog({
               ) : null}
 
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <SummaryTile label="Customer" value={getCustomerName(order)} />
+                <SummaryTile label="Email" value={getCustomerEmail(order)} />
                 <SummaryTile label="Order number" value={order.orderNumber ?? orderId ?? "Unknown"} />
                 <SummaryTile label="Type" value={formatOrderType(order.orderType)} />
                 <SummaryTile label="Subtotal" value={formatMoney(order.subtotal)} />
@@ -620,6 +622,7 @@ function OrderListRow({
 }) {
   const itemCount = order.items?.reduce((total, item) => total + Number(item.quantity ?? 0), 0) ?? 0;
   const pickupTime = order.requestedPickupTime ? formatDateTime(order.requestedPickupTime) : "Not set";
+  const customerName = getCustomerName(order);
 
   return (
     <button
@@ -632,6 +635,7 @@ function OrderListRow({
     >
       <div className="min-w-0">
         <p className="truncate font-semibold text-slate-950">{order.orderNumber ?? getOrderId(order) ?? "Unknown order"}</p>
+        <p className="mt-1 truncate text-xs text-slate-500">{customerName}</p>
         <p className="mt-1 text-xs text-slate-500">{formatDateTime(order.createdAt)}</p>
       </div>
       <div>
@@ -861,6 +865,19 @@ async function resolveLocationId(context: { locationId: string | null; locationC
 
 function getOrderId(order: CheckoutResponse | null | undefined) {
   return order?.id ?? order?.orderId ?? "";
+}
+
+function getCustomerName(order: CheckoutResponse | null | undefined) {
+  const customerName = typeof order?.customerName === "string" ? order.customerName.trim() : "";
+  const customerEmail = getCustomerEmail(order);
+
+  return customerName || customerEmail || "Unknown customer";
+}
+
+function getCustomerEmail(order: CheckoutResponse | null | undefined) {
+  return typeof order?.customerEmail === "string" && order.customerEmail.trim()
+    ? order.customerEmail.trim()
+    : "No email";
 }
 
 function getApiErrorMessage(body: unknown, fallback: string) {
