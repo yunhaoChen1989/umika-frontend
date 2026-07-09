@@ -2,6 +2,13 @@ export type SystemMenuDto = {
   id: string | null;
   parentId: string | null;
   name: string;
+  description?: string | null;
+  nameEn?: string | null;
+  nameZh?: string | null;
+  nameKo?: string | null;
+  descriptionEn?: string | null;
+  descriptionZh?: string | null;
+  descriptionKo?: string | null;
   code: string;
   path: string | null;
   component: string | null;
@@ -17,6 +24,12 @@ export type SystemMenuDto = {
 export type SystemMenuUpsertRequest = {
   parentId: string | null;
   name: string;
+  nameEn?: string | null;
+  nameZh?: string | null;
+  nameKo?: string | null;
+  descriptionEn?: string | null;
+  descriptionZh?: string | null;
+  descriptionKo?: string | null;
   code: string;
   path: string | null;
   component: string | null;

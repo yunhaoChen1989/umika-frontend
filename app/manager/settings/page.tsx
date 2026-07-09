@@ -5,12 +5,10 @@ import { ManagerPageHeader } from "@/components/manager/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { getCurrentLocale } from "@/lib/i18n-server";
 import { getManagerMenus } from "@/lib/manager-api";
-import { getLocalizedManagerMenus } from "@/lib/localized-data";
 
 export default async function ManagerSettingsPage() {
   const locale = await getCurrentLocale();
-  const backendMenus = await getManagerMenus();
-  const menus = getLocalizedManagerMenus(locale, backendMenus);
+  const menus = await getManagerMenus(locale);
   const settingsMenu = menus.find((menu) => menu.code === "MANAGER_SETTINGS" || menu.path === "/manager/settings");
   const children = settingsMenu?.children ?? [];
 
@@ -33,7 +31,7 @@ export default async function ManagerSettingsPage() {
                   </span>
                   <div className="min-w-0">
                     <p className="font-semibold text-slate-950">{item.name}</p>
-                    <p className="mt-2 truncate font-mono text-xs text-slate-500">{item.path}</p>
+                    <p className="mt-2 line-clamp-2 text-sm text-slate-500">{item.description ?? item.path}</p>
                   </div>
                 </CardContent>
               </Card>

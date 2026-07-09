@@ -322,8 +322,8 @@ export function SiteHeader({ locale }: { locale: Locale }) {
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/92 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
-        <Link href="/" className="flex items-center gap-3" aria-label="Umika Sushi home">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-2 px-3 sm:gap-3 sm:px-6 lg:px-8">
+        <Link href="/" className="flex min-w-0 items-center gap-3" aria-label="Umika Sushi home">
           <span className="grid h-9 w-9 place-items-center rounded-md bg-primary font-serif text-lg font-bold text-primary-foreground">
             U
           </span>
@@ -338,12 +338,12 @@ export function SiteHeader({ locale }: { locale: Locale }) {
           </span>
         </Link>
         <nav className="hidden items-center gap-1 md:flex">{renderNavLinks()}</nav>
-        <div className="flex shrink-0 items-center gap-2">
-          <label className="flex min-w-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-950 shadow-sm">
-            <MapPin className="h-4 w-4 shrink-0 text-primary" />
+        <div className="flex min-w-0 shrink items-center justify-end gap-1.5 sm:shrink-0 sm:gap-2">
+          <label className="flex min-w-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-sm text-slate-950 shadow-sm sm:gap-1.5 sm:px-2">
+            <MapPin className="hidden h-4 w-4 shrink-0 text-primary min-[360px]:block" />
             <select
               aria-label="Browse location"
-              className="h-8 max-w-28 bg-white text-sm font-bold text-slate-950 outline-none sm:max-w-36 md:max-w-48"
+              className="h-8 min-w-0 max-w-20 bg-white text-sm font-bold text-slate-950 outline-none min-[360px]:max-w-28 sm:max-w-36 md:max-w-48"
               disabled={locationOptions.length === 0}
               value={selectedLocationValue}
               onChange={(event) => changeLocation(event.target.value)}
@@ -366,7 +366,7 @@ export function SiteHeader({ locale }: { locale: Locale }) {
             </select>
           </label>
           <LanguageSwitcher locale={locale} label={dict.common.language} />
-          <Button asChild variant="outline" size="icon" aria-label="Account">
+          <Button asChild variant="outline" size="icon" aria-label="Account" className="hidden min-[360px]:inline-flex">
             <Link href="/account">
               <UserRound className="h-4 w-4" />
             </Link>

@@ -143,7 +143,7 @@ export function MenuPreview({ locale }: { locale: Locale }) {
         {recommendations.length ? (
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {recommendations.map((item) => {
-              const title = item.title?.trim() || item.itemName || "Menu item";
+              const title = item.title?.trim() || item.itemName || dict.menuPage.itemFallback;
               const subtitle = item.subtitle?.trim() || item.itemDescription || "";
 
               return (
@@ -166,7 +166,7 @@ export function MenuPreview({ locale }: { locale: Locale }) {
                     {subtitle ? <p className="text-sm leading-6 text-muted-foreground">{subtitle}</p> : null}
                     <div className="mt-5 flex items-center justify-between gap-3">
                       <div className="flex flex-wrap gap-2">
-                        {item.isAvailable === false ? <Badge>Unavailable</Badge> : null}
+                        {item.isAvailable === false ? <Badge>{dict.menuPage.unavailable}</Badge> : null}
                         {item.sku ? <Badge>{item.sku}</Badge> : null}
                       </div>
                       <Button

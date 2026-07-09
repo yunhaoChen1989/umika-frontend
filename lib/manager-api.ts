@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 
 import { managerDashboard, managerPermissions, managerRoleAccess, managerUsers } from "@/lib/manager-data";
+import { defaultLocale, type Locale } from "@/lib/i18n";
 import type { ManagerMenu } from "@/lib/manager-types";
 
 type BackendManagerMenu = {
@@ -8,6 +9,7 @@ type BackendManagerMenu = {
   parentId?: string | null;
   parent_id?: string | null;
   name?: string;
+  description?: string | null;
   code?: string;
   path?: string;
   route?: string;
@@ -59,6 +61,7 @@ function normalizeManagerMenu(menu: BackendManagerMenu): ManagerMenu | null {
   return {
     id: menu.id ?? menu.code,
     name: menu.name,
+    description: menu.description ?? null,
     code: menu.code,
     path: menu.path ?? menu.route ?? "/manager",
     icon: menu.icon ?? "LayoutDashboard",
@@ -117,7 +120,7 @@ export async function getManagerDashboard() {
   return managerDashboard;
 }
 
-export async function getManagerMenus() {
+export async function getManagerMenus(locale: Locale = defaultLocale) {
   const token = await getManagerAccessToken();
 
   if (!token) {
@@ -125,6 +128,7 @@ export async function getManagerMenus() {
   }
 
   const url = new URL(`${managerApiBaseUrl}/manager/menus`);
+  url.searchParams.set("locale", locale);
   url.searchParams.set("page", "0");
   url.searchParams.set("size", "200");
   url.searchParams.set("sort", "sortOrder,asc");

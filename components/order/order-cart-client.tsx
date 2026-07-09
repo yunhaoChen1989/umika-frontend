@@ -16,8 +16,7 @@ import type { CartResponse, CheckoutResponse, RedemptionPreviewResponse } from "
 import { getLoginRedirectHref } from "@/lib/auth-redirect";
 import type { Dictionary } from "@/lib/i18n";
 import { resolveBackendMediaUrl } from "@/lib/media-url";
-import { flattenMenuCatalog, type ResolvedMenuItem } from "@/lib/menu-catalog";
-import type { MenuCatalogResponse } from "@/lib/menu-management-types";
+import type { ResolvedMenuItem } from "@/lib/menu-catalog";
 
 export function OrderCartClient({ copy }: { copy: Dictionary }) {
   const pathname = usePathname();
@@ -110,16 +109,17 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
 
       setSelectedLocationId(nextLocationId);
 
-      const catalogUrl = new URL("/api/menu-catalog", window.location.origin);
-      catalogUrl.searchParams.set("locationId", nextLocationId);
+      const frequentItemsUrl = new URL("/api/me/frequent-menu-items", window.location.origin);
+      frequentItemsUrl.searchParams.set("limit", "4");
+      frequentItemsUrl.searchParams.set("locationId", nextLocationId);
 
-      const menuResponse = await fetch(catalogUrl.toString(), {
+      const menuResponse = await fetch(frequentItemsUrl.toString(), {
         headers: getAuthHeaders(),
         cache: "no-store",
       }).catch(() => null);
 
       if (menuResponse?.ok) {
-        setMenuItems(flattenMenuCatalog((await menuResponse.json()) as MenuCatalogResponse));
+        setMenuItems(normalizeFrequentMenuItems(await menuResponse.json().catch(() => null), copy.menuPage.itemFallback));
       } else {
         const body = menuResponse ? await menuResponse.json().catch(() => null) : null;
         setMessage(resolveErrorMessage(body, copy.menuPage.loadError));
@@ -145,7 +145,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
     return () => {
       active = false;
     };
-  }, [copy.menuPage.loadError, copy.orderPage.cartError, copy.orderPage.locationRequired, loadCart, searchParams, sessionId]);
+  }, [copy.menuPage.itemFallback, copy.menuPage.loadError, copy.orderPage.cartError, copy.orderPage.locationRequired, loadCart, searchParams, sessionId]);
 
   useEffect(() => {
     if (!cart?.items.length) {
@@ -448,7 +448,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
           ) : menuItems.length === 0 ? (
             <p className="text-sm text-muted-foreground">{copy.orderPage.noMenuItems}</p>
           ) : (
-            menuItems.slice(0, 12).map((item) => (
+            menuItems.map((item) => (
               <Card key={item.id} className="flex flex-col">
                 <div className="aspect-[4/3] overflow-hidden rounded-t-md bg-muted">
                   <img
@@ -793,7 +793,7 @@ function OrderReview({ order, copy }: { order: CheckoutResponse; copy: Dictionar
           <p className="font-semibold">{copy.orderPage.items}</p>
           <div className="mt-2 space-y-2">
             {items.map((item, index) => {
-              const name = item.itemName ?? item.name ?? item.menuItemId ?? `Item ${index + 1}`;
+              const name = item.itemName ?? item.name ?? item.menuItemId ?? `${copy.orderPage.itemFallback} ${index + 1}`;
               return (
                 <div key={item.id ?? `${name}-${index}`} className="flex justify-between gap-3">
                   <span className="min-w-0 truncate">
@@ -825,8 +825,72 @@ function resolveErrorMessage(body: unknown, fallback: string) {
   return fallback;
 }
 
+function normalizeFrequentMenuItems(body: unknown, itemFallback: string): ResolvedMenuItem[] {
+  const payload = normalizePayload<unknown>(body);
+  const values = Array.isArray(payload)
+    ? payload
+    : isRecord(payload) && Array.isArray(payload.content)
+      ? payload.content
+      : isRecord(payload) && Array.isArray(payload.items)
+        ? payload.items
+        : [];
+
+  return values
+    .map((item) => normalizeFrequentMenuItem(item, itemFallback))
+    .filter((item): item is ResolvedMenuItem => Boolean(item));
+}
+
+function normalizeFrequentMenuItem(value: unknown, itemFallback: string): ResolvedMenuItem | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const id = getString(value.menuItemId) ?? getString(value.id) ?? getString(value.itemId);
+
+  if (!id) {
+    return null;
+  }
+
+  return {
+    id,
+    categoryId: getString(value.categoryId) ?? "",
+    categoryName: getString(value.categoryName) ?? getString(value.category) ?? "",
+    name: getString(value.itemName) ?? getString(value.name) ?? getString(value.title) ?? itemFallback,
+    description: getString(value.itemDescription) ?? getString(value.description) ?? getString(value.subtitle),
+    price: getNumber(value.price) ?? getNumber(value.unitPrice) ?? 0,
+    imageUrl: getString(value.imageUrl) ?? getString(value.image_url),
+    displayOrder: getNumber(value.displayOrder) ?? getNumber(value.sortOrder) ?? null,
+    isAvailable: getBoolean(value.isAvailable) ?? getBoolean(value.available) ?? null,
+  };
+}
+
 function formatMoney(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? `$${value.toFixed(2)}` : "--";
+}
+
+function getString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  return null;
+}
+
+function getBoolean(value: unknown) {
+  return typeof value === "boolean" ? value : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object");
 }
 
 function formatPoints(value: number | null | undefined) {

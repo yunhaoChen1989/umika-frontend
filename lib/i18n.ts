@@ -83,6 +83,8 @@ export const dictionaries = {
       loading: "Loading menu...",
       empty: "No available menu items for this location yet.",
       loadError: "Unable to load menu.",
+      itemFallback: "Menu item",
+      unavailable: "Unavailable",
     },
     orderPage: {
       eyebrow: "Pickup",
@@ -148,6 +150,7 @@ export const dictionaries = {
       cartError: "Unable to update cart. Please try again.",
       locationRequired: "Unable to load the current location.",
       removeItem: "Remove item",
+      itemFallback: "Item",
     },
     rewardsPage: {
       points: "points",
@@ -216,6 +219,7 @@ export const dictionaries = {
       quantity: "Qty",
       noItemDetails: "No item details returned for this order.",
       tipAmount: "Tip",
+      itemFallback: "Item",
       fields: {
         name: "Name",
         firstName: "First name",
@@ -384,6 +388,8 @@ export const dictionaries = {
       loading: "正在加载菜单...",
       empty: "此门店暂时没有可点菜品。",
       loadError: "无法加载菜单。",
+      itemFallback: "菜品",
+      unavailable: "暂不可售",
     },
     orderPage: {
       eyebrow: "自取",
@@ -449,6 +455,7 @@ export const dictionaries = {
       cartError: "无法更新购物车，请重试。",
       locationRequired: "无法加载当前门店。",
       removeItem: "移除商品",
+      itemFallback: "商品",
     },
     rewardsPage: {
       points: "积分",
@@ -517,6 +524,7 @@ export const dictionaries = {
       quantity: "数量",
       noItemDetails: "此订单没有返回商品详情。",
       tipAmount: "小费",
+      itemFallback: "商品",
       fields: {
         name: "姓名",
         firstName: "名",
@@ -680,6 +688,8 @@ export const dictionaries = {
       loading: "메뉴를 불러오는 중...",
       empty: "이 매장에는 현재 주문 가능한 메뉴가 없습니다.",
       loadError: "메뉴를 불러올 수 없습니다.",
+      itemFallback: "메뉴 항목",
+      unavailable: "주문 불가",
     },
     orderPage: {
       eyebrow: "픽업",
@@ -745,6 +755,7 @@ export const dictionaries = {
       cartError: "장바구니를 업데이트할 수 없습니다. 다시 시도하세요.",
       locationRequired: "현재 매장을 불러올 수 없습니다.",
       removeItem: "항목 삭제",
+      itemFallback: "항목",
     },
     rewardsPage: {
       points: "포인트",
@@ -813,6 +824,7 @@ export const dictionaries = {
       quantity: "수량",
       noItemDetails: "이 주문의 항목 상세 정보가 없습니다.",
       tipAmount: "팁",
+      itemFallback: "항목",
       fields: {
         name: "이름",
         firstName: "이름",

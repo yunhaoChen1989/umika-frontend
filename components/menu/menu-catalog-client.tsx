@@ -151,7 +151,7 @@ export function MenuCatalogClient({ copy }: { copy: Dictionary }) {
   return (
     <>
       {message ? <p className="mt-6 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{message}</p> : null}
-      <div className="-mx-4 mt-8 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
+      <div className="mt-8 flex w-full max-w-full gap-2 overflow-x-auto pb-1">
         <Button onClick={() => setSelectedCategoryId("all")} variant={selectedCategoryId === "all" ? "default" : "outline"} size="sm">
           {copy.menuPage.all}
         </Button>

@@ -12,6 +12,7 @@ export type ManagerPermission = {
 export type ManagerMenu = {
   id: string;
   name: string;
+  description?: string | null;
   code: string;
   path: string;
   icon: string;

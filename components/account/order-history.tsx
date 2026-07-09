@@ -41,6 +41,7 @@ type OrderHistoryCopy = {
   quantity: string;
   noItemDetails: string;
   tipAmount: string;
+  itemFallback: string;
   loginRequired: string;
   login: string;
 };
@@ -274,7 +275,7 @@ function OrderDetailsDialog({
                     {items.map((item, index) => (
                       <div className="grid gap-3 px-4 py-3 text-sm sm:grid-cols-[1fr_auto_auto_auto] sm:items-center" key={item.id ?? `${item.itemName ?? item.name}-${index}`}>
                         <div className="min-w-0">
-                          <p className="font-semibold">{item.itemName ?? item.name ?? item.menuItemId ?? `Item ${index + 1}`}</p>
+                          <p className="font-semibold">{item.itemName ?? item.name ?? item.menuItemId ?? `${copy.itemFallback} ${index + 1}`}</p>
                           {item.options || item.optionSnapshot ? <p className="mt-1 text-xs text-muted-foreground">{formatOptions(item.options ?? item.optionSnapshot)}</p> : null}
                         </div>
                         <p className="text-muted-foreground">
