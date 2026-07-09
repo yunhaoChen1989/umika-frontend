@@ -3,11 +3,13 @@ import Link from "next/link";
 import { ManagerIcon } from "@/components/manager/manager-icon";
 import { ManagerPageHeader } from "@/components/manager/page-header";
 import { Card, CardContent } from "@/components/ui/card";
+import { getDictionary } from "@/lib/i18n";
 import { getCurrentLocale } from "@/lib/i18n-server";
 import { getManagerMenus } from "@/lib/manager-api";
 
 export default async function ManagerSettingsPage() {
   const locale = await getCurrentLocale();
+  const copy = getDictionary(locale).manager.pages.settings;
   const menus = await getManagerMenus(locale);
   const settingsMenu = menus.find((menu) => menu.code === "MANAGER_SETTINGS" || menu.path === "/manager/settings");
   const children = settingsMenu?.children ?? [];
@@ -15,9 +17,9 @@ export default async function ManagerSettingsPage() {
   return (
     <div className="space-y-6">
       <ManagerPageHeader
-        eyebrow="System"
-        title="Settings"
-        description="Manage platform settings, system menus, role permissions, and user permission overrides."
+        eyebrow={copy.eyebrow}
+        title={copy.title}
+        description={copy.description}
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -39,7 +41,7 @@ export default async function ManagerSettingsPage() {
           ))
         ) : (
           <Card className="rounded-md shadow-none">
-            <CardContent className="p-5 text-sm text-slate-500">No settings menu children are assigned to this role yet.</CardContent>
+            <CardContent className="p-5 text-sm text-slate-500">{copy.empty}</CardContent>
           </Card>
         )}
       </div>

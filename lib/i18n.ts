@@ -289,6 +289,54 @@ export const dictionaries = {
         queue: "Access work queue",
         activity: "Admin activity",
       },
+      pages: {
+        orders: {
+          eyebrow: "Operations",
+          title: "Orders",
+          description: "Search customer orders by email, review backend totals, and update fulfillment status.",
+        },
+        recommendations: {
+          eyebrow: "Recommendations",
+          title: "Menu recommendations",
+          description: "Choose the recommended menu items shown on the homepage for the current header location.",
+        },
+        settings: {
+          eyebrow: "System",
+          title: "Settings",
+          description: "Manage platform settings, system menus, role permissions, and user permission overrides.",
+          empty: "No settings menu children are assigned to this role yet.",
+        },
+        stores: {
+          eyebrow: "Stores",
+          title: "Locations",
+          description: "Create and maintain Umika Sushi store records. These locations are used as store scope for managers, staff, menus, orders, and reports.",
+        },
+        menus: {
+          eyebrow: "Menus",
+          title: "Restaurant menu",
+          description: "Create and maintain menu categories, items, and item images for each store. The tree below mirrors the live menu structure.",
+        },
+        menuCategories: {
+          eyebrow: "Menus",
+          title: "Menu categories",
+          description: "Manage the category layer of the restaurant menu tree for the selected store.",
+        },
+        menuItems: {
+          eyebrow: "Menus",
+          title: "Menu items",
+          description: "Manage menu items and their item photos for the selected store.",
+        },
+        menuAvailability: {
+          eyebrow: "Menus",
+          title: "Menu images",
+          description: "Keep the item photo layer organized so the public menu shows the right image for each dish.",
+        },
+        locationSettings: {
+          eyebrow: "System",
+          title: "Location settings",
+          description: "Review the global system defaults and override the values you need for each store.",
+        },
+      },
       systemMenus: {
         eyebrow: "System",
         title: "System menus",
@@ -593,6 +641,54 @@ export const dictionaries = {
         queue: "访问工作队列",
         activity: "管理员活动",
       },
+      pages: {
+        orders: {
+          eyebrow: "运营",
+          title: "订单",
+          description: "按邮箱搜索顾客订单，查看后端计算的金额，并更新履约状态。",
+        },
+        recommendations: {
+          eyebrow: "推荐",
+          title: "菜单推荐",
+          description: "为当前页眉门店选择首页展示的推荐菜品。",
+        },
+        settings: {
+          eyebrow: "系统",
+          title: "设置",
+          description: "管理平台设置、系统菜单、角色权限和用户权限覆盖。",
+          empty: "此角色尚未分配设置菜单子项。",
+        },
+        stores: {
+          eyebrow: "门店",
+          title: "位置",
+          description: "创建并维护 Umika Sushi 门店记录。这些位置用于经理、员工、菜单、订单和报表的门店范围。",
+        },
+        menus: {
+          eyebrow: "菜单",
+          title: "餐厅菜单",
+          description: "为每个门店创建并维护菜单分类、菜品和图片。下方树结构对应实际菜单结构。",
+        },
+        menuCategories: {
+          eyebrow: "菜单",
+          title: "菜单分类",
+          description: "管理所选门店餐厅菜单树的分类层级。",
+        },
+        menuItems: {
+          eyebrow: "菜单",
+          title: "菜单菜品",
+          description: "管理所选门店的菜品及菜品图片。",
+        },
+        menuAvailability: {
+          eyebrow: "菜单",
+          title: "菜单图片",
+          description: "整理菜品图片层，让前台菜单为每道菜显示正确图片。",
+        },
+        locationSettings: {
+          eyebrow: "系统",
+          title: "门店设置",
+          description: "查看全局系统默认值，并为各门店覆盖需要调整的值。",
+        },
+      },
       systemMenus: {
         eyebrow: "系统",
         title: "系统菜单",
@@ -892,6 +988,54 @@ export const dictionaries = {
         invite: "직원 초대",
         queue: "접근 작업 큐",
         activity: "관리자 활동",
+      },
+      pages: {
+        orders: {
+          eyebrow: "운영",
+          title: "주문",
+          description: "고객 이메일로 주문을 검색하고, 백엔드 계산 금액을 확인하며, 처리 상태를 업데이트합니다.",
+        },
+        recommendations: {
+          eyebrow: "추천",
+          title: "메뉴 추천",
+          description: "현재 헤더 매장 기준으로 홈페이지에 표시할 추천 메뉴를 선택합니다.",
+        },
+        settings: {
+          eyebrow: "시스템",
+          title: "설정",
+          description: "플랫폼 설정, 시스템 메뉴, 역할 권한, 사용자 권한 예외를 관리합니다.",
+          empty: "이 역할에 배정된 설정 하위 메뉴가 아직 없습니다.",
+        },
+        stores: {
+          eyebrow: "매장",
+          title: "위치",
+          description: "Umika Sushi 매장 기록을 만들고 관리합니다. 이 위치는 매니저, 직원, 메뉴, 주문, 보고서의 매장 범위로 사용됩니다.",
+        },
+        menus: {
+          eyebrow: "메뉴",
+          title: "레스토랑 메뉴",
+          description: "각 매장의 메뉴 카테고리, 품목, 이미지를 만들고 관리합니다. 아래 트리는 실제 메뉴 구조를 반영합니다.",
+        },
+        menuCategories: {
+          eyebrow: "메뉴",
+          title: "메뉴 카테고리",
+          description: "선택한 매장의 레스토랑 메뉴 트리에서 카테고리 계층을 관리합니다.",
+        },
+        menuItems: {
+          eyebrow: "메뉴",
+          title: "메뉴 품목",
+          description: "선택한 매장의 메뉴 품목과 품목 사진을 관리합니다.",
+        },
+        menuAvailability: {
+          eyebrow: "메뉴",
+          title: "메뉴 이미지",
+          description: "공개 메뉴에 각 음식의 올바른 이미지가 표시되도록 사진 계층을 정리합니다.",
+        },
+        locationSettings: {
+          eyebrow: "시스템",
+          title: "매장 설정",
+          description: "전역 시스템 기본값을 검토하고 각 매장에 필요한 값을 덮어씁니다.",
+        },
       },
       systemMenus: {
         eyebrow: "시스템",

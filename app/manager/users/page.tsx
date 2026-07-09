@@ -12,7 +12,7 @@ export default async function ManagerUsersPage() {
       <ManagerPageHeader
         eyebrow={dict.manager.users.eyebrow}
         title={dict.manager.users.title}
-        description="Create users, edit profiles, delete accounts, and manage role assignments from the backend."
+        description={dict.manager.users.description}
       />
       <UserManager />
     </div>

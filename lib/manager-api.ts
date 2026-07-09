@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 
 import { managerDashboard, managerPermissions, managerRoleAccess, managerUsers } from "@/lib/manager-data";
 import { defaultLocale, type Locale } from "@/lib/i18n";
+import { getLocalizedManagerMenus } from "@/lib/localized-data";
 import type { ManagerMenu } from "@/lib/manager-types";
 
 type BackendManagerMenu = {
@@ -162,7 +163,7 @@ export async function getManagerMenus(locale: Locale = defaultLocale) {
 
   const sortedMenus = sortManagerMenus(menus);
 
-  return sortedMenus;
+  return getLocalizedManagerMenus(locale, sortedMenus);
 }
 
 export async function getManagerPermissions() {

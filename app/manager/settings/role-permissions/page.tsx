@@ -1,13 +1,18 @@
 import { RolePermissionManager } from "@/components/manager/roles/role-permission-manager";
 import { ManagerPageHeader } from "@/components/manager/page-header";
+import { getDictionary } from "@/lib/i18n";
+import { getCurrentLocale } from "@/lib/i18n-server";
 
-export default function RolePermissionSettingsPage() {
+export default async function RolePermissionSettingsPage() {
+  const locale = await getCurrentLocale();
+  const copy = getDictionary(locale).manager.roles;
+
   return (
     <div className="space-y-6">
       <ManagerPageHeader
-        eyebrow="Authorization"
-        title="Roles and menu permissions"
-        description="Create roles and control which system menus each role can view, layer by layer through the menu tree."
+        eyebrow={copy.eyebrow}
+        title={copy.title}
+        description={copy.description}
       />
       <RolePermissionManager />
     </div>

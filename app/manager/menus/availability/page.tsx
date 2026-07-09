@@ -1,13 +1,18 @@
 import { ManagerPageHeader } from "@/components/manager/page-header";
 import { MenuCatalogManager } from "@/components/manager/menus/menu-catalog-manager";
+import { getDictionary } from "@/lib/i18n";
+import { getCurrentLocale } from "@/lib/i18n-server";
 
-export default function ManagerMenuAvailabilityPage() {
+export default async function ManagerMenuAvailabilityPage() {
+  const locale = await getCurrentLocale();
+  const copy = getDictionary(locale).manager.pages.menuAvailability;
+
   return (
     <div className="space-y-6">
       <ManagerPageHeader
-        eyebrow="Menus"
-        title="Menu images"
-        description="Keep the item photo layer organized so the public menu shows the right image for each dish."
+        eyebrow={copy.eyebrow}
+        title={copy.title}
+        description={copy.description}
       />
       <MenuCatalogManager initialKind="image" />
     </div>
