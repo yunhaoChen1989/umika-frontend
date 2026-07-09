@@ -10,6 +10,10 @@ type ManagerProfile = {
   roles?: string[] | null;
 };
 
+type ApiEnvelope<T> = {
+  data?: T | null;
+};
+
 const managerRoles = new Set(["ADMIN", "MANAGER", "STAFF", "ROLE_ADMIN", "ROLE_MANAGER", "ROLE_STAFF"]);
 
 const backendBaseUrl = (
@@ -54,7 +58,8 @@ async function requireManagerAccess() {
     redirect("/login?redirect=%2Fmanager");
   }
 
-  const profile = (await response.json().catch(() => null)) as ManagerProfile | null;
+  const payload = (await response.json().catch(() => null)) as ManagerProfile | ApiEnvelope<ManagerProfile> | null;
+  const profile = resolveProfile(payload);
   const roles = [...(profile?.roles ?? []), profile?.role]
     .filter((role): role is string => Boolean(role))
     .map((role) => role.toUpperCase());
@@ -62,4 +67,16 @@ async function requireManagerAccess() {
   if (!roles.some((role) => managerRoles.has(role))) {
     redirect("/");
   }
+}
+
+function resolveProfile(payload: ManagerProfile | ApiEnvelope<ManagerProfile> | null) {
+  if (!payload) {
+    return null;
+  }
+
+  if ("data" in payload && payload.data) {
+    return payload.data;
+  }
+
+  return payload as ManagerProfile;
 }

@@ -1,9 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-type BackendGoogleLoginResponse = {
-  accessToken?: string;
-  tokenType?: string;
-};
+import { shouldUseSecureAuthCookie, type BackendAuthResponse, unwrapAuthResponse } from "@/lib/auth-session";
 
 const backendBaseUrl = (
   process.env.BACKEND_API_BASE_URL ??
@@ -44,23 +41,24 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const data = (await backendResponse.json()) as BackendGoogleLoginResponse;
+  const data = unwrapAuthResponse((await backendResponse.json()) as BackendAuthResponse);
 
-  if (!data.accessToken) {
+  if (!data?.accessToken) {
     return NextResponse.json({ message: "Google login response did not include an access token." }, { status: 502 });
   }
 
+  const accessToken = data.accessToken;
   const response = NextResponse.json({
     authenticated: true,
-    accessToken: data.accessToken,
+    accessToken,
     tokenType: data.tokenType ?? "Bearer",
   });
-  response.cookies.set("umika_access_token", data.accessToken, {
+  response.cookies.set("umika_access_token", accessToken, {
     httpOnly: true,
     maxAge: 60 * 60,
     path: "/",
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureAuthCookie(request),
   });
 
   return response;
