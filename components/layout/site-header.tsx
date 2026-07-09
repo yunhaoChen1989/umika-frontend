@@ -26,7 +26,7 @@ type CurrentAccountProfile = {
   roles?: string[] | null;
 };
 
-const adminRoles = new Set(["ADMIN", "MANAGER", "ROLE_ADMIN", "ROLE_MANAGER"]);
+const adminRoles = new Set(["ADMIN", "MANAGER", "STAFF", "ROLE_ADMIN", "ROLE_MANAGER", "ROLE_STAFF"]);
 
 export function SiteHeader({ locale }: { locale: Locale }) {
   const dict = getDictionary(locale);

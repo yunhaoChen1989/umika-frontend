@@ -121,6 +121,11 @@ export function OrderManager() {
         return;
       }
 
+      if (!locationId && locationContext.locationCode) {
+        setLiveStatus("disconnected");
+        return;
+      }
+
       setLiveStatus("connecting");
       socket = new WebSocket(buildOrderNotificationWsUrl(locationId));
 
