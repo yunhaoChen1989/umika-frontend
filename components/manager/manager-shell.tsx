@@ -63,8 +63,7 @@ export function ManagerShell({
       if (!token) {
         setAccountName(null);
         setRoleLabel(null);
-        setAuthStatus("unauthenticated");
-        router.replace(getLoginRedirectHref(`${pathname}${window.location.search}`));
+        setAuthStatus("authenticated");
         return;
       }
 
@@ -83,8 +82,7 @@ export function ManagerShell({
       if (!response?.ok) {
         setAccountName(null);
         setRoleLabel(null);
-        setAuthStatus("unauthenticated");
-        router.replace(getLoginRedirectHref(`${pathname}${window.location.search}`));
+        setAuthStatus("authenticated");
         return;
       }
 
