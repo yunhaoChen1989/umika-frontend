@@ -5,7 +5,7 @@ const backendBaseUrl = (
   process.env.MANAGER_API_BASE_URL ??
   process.env.BACKEND_API_BASE_URL ??
   process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "http://localhost:8080/api/v1"
+  "http://localhost:2026/api/v1"
 ).replace(/\/$/, "");
 
 async function getToken(request: NextRequest) {

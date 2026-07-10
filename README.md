@@ -28,18 +28,18 @@ The local dev server runs at `http://localhost:3000`.
 Copy `.env.example` to `.env.local` when the backend API is ready:
 
 ```bash
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8080/api
+NEXT_PUBLIC_API_BASE_URL=http://localhost:2026/api
 NEXT_PUBLIC_ORDER_NOTIFICATION_WS_PREFIX=/api/v1
 NEXT_PUBLIC_SITE_URL=https://umikasushi.ca
 ```
 
-For local development, `next.config.ts` proxies `/api/v1/*` to `http://localhost:8080/api/v1/*`.
+For local development, `next.config.ts` proxies `/api/v1/*` to `http://localhost:2026/api/v1/*`.
 The manager order notification socket therefore connects through the Next dev server at
 `ws://localhost:3000/api/v1/manager/order-notifications/ws`.
 
 `NEXT_PUBLIC_ORDER_NOTIFICATION_WS_URL` can still be set later as an explicit public WebSocket URL.
 If it is not set, the frontend falls back to `NEXT_PUBLIC_ORDER_NOTIFICATION_WS_PREFIX`, producing a same-origin URL like
-`wss://umikasushi.ca/api/v1/manager/order-notifications/ws` in production. Port `8080` does not need to be public.
+`wss://umikasushi.ca/api/v1/manager/order-notifications/ws` in production. Port `2026` does not need to be public.
 
 Example Nginx proxy for the Spring Boot WebSocket endpoint:
 
@@ -51,7 +51,7 @@ map $http_upgrade $connection_upgrade {
 
 # Put this before the general Next.js location.
 location /api/v1/manager/order-notifications/ws {
-  proxy_pass http://127.0.0.1:8080/api/v1/manager/order-notifications/ws;
+  proxy_pass http://127.0.0.1:2026/api/v1/manager/order-notifications/ws;
   proxy_http_version 1.1;
   proxy_set_header Host $host;
   proxy_set_header X-Real-IP $remote_addr;
@@ -64,7 +64,7 @@ location /api/v1/manager/order-notifications/ws {
 }
 
 location /api/v1/ {
-  proxy_pass http://127.0.0.1:8080/api/v1/;
+  proxy_pass http://127.0.0.1:2026/api/v1/;
   proxy_set_header Host $host;
   proxy_set_header X-Real-IP $remote_addr;
   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

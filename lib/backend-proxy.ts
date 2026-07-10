@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 export const backendBaseUrl = (
   process.env.BACKEND_API_BASE_URL ??
   process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "http://localhost:8080/api/v1"
+  "http://localhost:2026/api/v1"
 ).replace(/\/$/, "");
 
 export function getAuthHeaders(request: NextRequest) {

@@ -17,13 +17,13 @@ const backendOrigin = (() => {
     const { protocol, hostname, origin } = window.location;
 
     if (hostname === "localhost" || hostname === "127.0.0.1") {
-      return `${protocol}//${hostname}:8080`;
+      return `${protocol}//${hostname}:2026`;
     }
 
     return origin;
   }
 
-  return "http://localhost:8080";
+  return "http://localhost:2026";
 })();
 
 export function resolveBackendMediaUrl(value?: string | null) {

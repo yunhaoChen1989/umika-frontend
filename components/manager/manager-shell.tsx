@@ -15,6 +15,8 @@ import { getDictionary, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import type { ManagerMenu } from "@/lib/manager-types";
 import type { LocationDto } from "@/lib/location-types";
+import type { SpringPage } from "@/lib/location-types";
+import type { SystemMenuDto } from "@/lib/system-menu-types";
 
 type CurrentAccountProfile = {
   email?: string | null;
@@ -42,7 +44,8 @@ export function ManagerShell({
   const router = useRouter();
   const searchParams = useSearchParams();
   const dict = getDictionary(locale);
-  const activeBranchCodes = useMemo(() => getActiveBranchCodes(menus, pathname), [menus, pathname]);
+  const [runtimeMenus, setRuntimeMenus] = useState<ManagerMenu[]>(menus);
+  const activeBranchCodes = useMemo(() => getActiveBranchCodes(runtimeMenus, pathname), [runtimeMenus, pathname]);
   const [expandedCodes, setExpandedCodes] = useState<Set<string>>(() => new Set(activeBranchCodes));
   const [authStatus, setAuthStatus] = useState<"checking" | "authenticated" | "unauthenticated">("checking");
   const [accountName, setAccountName] = useState<string | null>(null);
@@ -53,6 +56,47 @@ export function ManagerShell({
   useEffect(() => {
     setExpandedCodes((current) => new Set([...current, ...activeBranchCodes]));
   }, [activeBranchCodes]);
+
+  useEffect(() => {
+    setRuntimeMenus(menus);
+  }, [menus]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadRuntimeMenus() {
+      if (menus.length > 0) {
+        return;
+      }
+
+      const token = localStorage.getItem("umika_access_token");
+      const headers = new Headers();
+
+      if (token) {
+        headers.set("Authorization", `Bearer ${token}`);
+      }
+
+      const response = await fetch("/api/manager/system-menus?page=0&size=300&sort=sortOrder,asc", {
+        method: "GET",
+        headers,
+        cache: "no-store",
+      }).catch(() => null);
+
+      if (!active || !response?.ok) {
+        return;
+      }
+
+      const payload = (await response.json().catch(() => null)) as SpringPage<SystemMenuDto> | SystemMenuDto[] | null;
+      const systemMenus = Array.isArray(payload) ? payload : payload?.content ?? [];
+      setRuntimeMenus(buildRuntimeManagerMenus(systemMenus));
+    }
+
+    void loadRuntimeMenus();
+
+    return () => {
+      active = false;
+    };
+  }, [menus]);
 
   useEffect(() => {
     let active = true;
@@ -316,7 +360,7 @@ export function ManagerShell({
         </div>
         <nav className="h-[calc(100vh-4rem)] overflow-y-auto px-3 py-4">
           <div className="space-y-1">
-            {menus.map((item) => (
+            {runtimeMenus.map((item) => (
               <ManagerNavItem
                 expandedCodes={expandedCodes}
                 item={item}
@@ -326,13 +370,10 @@ export function ManagerShell({
               />
             ))}
           </div>
-          {menus.length === 0 ? (
+          {runtimeMenus.length === 0 ? (
             <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
               <p className="font-semibold">No manager menus available.</p>
-              <p className="mt-1 text-xs leading-5 text-amber-800">Log in with a manager account or add role menu rows in the backend.</p>
-              <Button asChild variant="outline" size="sm" className="mt-3 border-amber-300 bg-white">
-                <LoginRedirectLink>Login</LoginRedirectLink>
-              </Button>
+              <p className="mt-1 text-xs leading-5 text-amber-800">No visible system menu rows were returned by the backend.</p>
             </div>
           ) : null}
         </nav>
@@ -400,12 +441,7 @@ export function ManagerShell({
             </div>
           </div>
           <nav className="flex gap-2 overflow-x-auto border-t border-slate-200 px-4 py-2 sm:px-6 lg:hidden" aria-label="Manager sections">
-            {menus.length === 0 ? (
-              <Button asChild variant="outline" size="sm" className="shrink-0">
-                <LoginRedirectLink>Login</LoginRedirectLink>
-              </Button>
-            ) : null}
-            {menus.map((item) => (
+            {runtimeMenus.map((item) => (
               <MobileManagerNavItem
                 expandedCodes={expandedCodes}
                 item={item}
@@ -571,6 +607,61 @@ function getActiveBranchCodes(menus: ManagerMenu[], pathname: string): string[] 
   }
 
   return activeCodes;
+}
+
+function buildRuntimeManagerMenus(systemMenus: SystemMenuDto[]) {
+  const nodes = new Map<string, ManagerMenu>();
+  const childrenByParent = new Map<string, ManagerMenu[]>();
+  const roots: ManagerMenu[] = [];
+
+  for (const menu of systemMenus) {
+    if (!menu.id || !menu.name || !menu.code || menu.isVisible === false || menu.isEnabled === false) {
+      continue;
+    }
+
+    nodes.set(menu.id, {
+      id: menu.id,
+      name: menu.name,
+      description: null,
+      code: menu.code,
+      path: menu.path ?? "/manager",
+      icon: menu.icon ?? "LayoutDashboard",
+      sortOrder: menu.sortOrder ?? 0,
+      children: [],
+    });
+  }
+
+  for (const menu of systemMenus) {
+    if (!menu.id) {
+      continue;
+    }
+
+    const node = nodes.get(menu.id);
+
+    if (!node) {
+      continue;
+    }
+
+    if (menu.parentId && nodes.has(menu.parentId)) {
+      childrenByParent.set(menu.parentId, [...(childrenByParent.get(menu.parentId) ?? []), node]);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  for (const [parentId, children] of childrenByParent) {
+    const parent = nodes.get(parentId);
+
+    if (parent) {
+      parent.children = sortRuntimeManagerMenus(children);
+    }
+  }
+
+  return sortRuntimeManagerMenus(roots);
+}
+
+function sortRuntimeManagerMenus(menus: ManagerMenu[]) {
+  return [...menus].sort((first, second) => first.sortOrder - second.sortOrder || first.name.localeCompare(second.name));
 }
 
 function resolveAccountName(profile: CurrentAccountProfile | null) {
