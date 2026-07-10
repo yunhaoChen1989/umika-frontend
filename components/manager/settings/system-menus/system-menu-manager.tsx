@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { AlertCircle, CheckCircle2, ChevronRight, Eye, EyeOff, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 
-import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { ManagerIcon } from "@/components/manager/manager-icon";
 import { StatusPill } from "@/components/manager/status-pill";
 import { Button } from "@/components/ui/button";
@@ -47,7 +46,7 @@ const emptyForm: SystemMenuFormState = {
 export function SystemMenuManager() {
   const [menus, setMenus] = useState<SystemMenuDto[]>([]);
   const [form, setForm] = useState<SystemMenuFormState>(emptyForm);
-  const [status, setStatus] = useState<"loading" | "ready" | "unauthenticated" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -66,10 +65,10 @@ export function SystemMenuManager() {
 
   const loadMenus = useCallback(async () => {
     const token = localStorage.getItem("umika_access_token");
+    const headers = new Headers();
 
-    if (!token) {
-      setStatus("unauthenticated");
-      return;
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
     }
 
     setStatus("loading");
@@ -77,15 +76,13 @@ export function SystemMenuManager() {
 
     const response = await fetch("/api/manager/system-menus?page=0&size=300&sort=sortOrder,asc", {
       method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers,
       cache: "no-store",
     }).catch(() => null);
 
     if (!response?.ok) {
       const body = response ? await response.json().catch(() => null) : null;
-      setStatus(response?.status === 401 || response?.status === 403 ? "unauthenticated" : "error");
+      setStatus("error");
       setError(typeof body?.message === "string" ? body.message : "Unable to load system menus.");
       return;
     }
@@ -175,10 +172,11 @@ export function SystemMenuManager() {
     event.preventDefault();
 
     const token = localStorage.getItem("umika_access_token");
+    const headers = new Headers();
+    headers.set("Content-Type", "application/json");
 
-    if (!token) {
-      setStatus("unauthenticated");
-      return;
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
     }
 
     setIsSaving(true);
@@ -187,10 +185,7 @@ export function SystemMenuManager() {
 
     const response = await fetch(form.id ? `/api/manager/system-menus/${form.id}` : "/api/manager/system-menus", {
       method: form.id ? "PUT" : "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify(toPayload()),
     }).catch(() => null);
 
@@ -213,10 +208,10 @@ export function SystemMenuManager() {
     }
 
     const token = localStorage.getItem("umika_access_token");
+    const headers = new Headers();
 
-    if (!token) {
-      setStatus("unauthenticated");
-      return;
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
     }
 
     if (!window.confirm(`Delete ${menu.name}?`)) {
@@ -229,9 +224,7 @@ export function SystemMenuManager() {
 
     const response = await fetch(`/api/manager/system-menus/${menu.id}`, {
       method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers,
     }).catch(() => null);
 
     setDeletingId(null);
@@ -256,10 +249,11 @@ export function SystemMenuManager() {
     }
 
     const token = localStorage.getItem("umika_access_token");
+    const headers = new Headers();
+    headers.set("Content-Type", "application/json");
 
-    if (!token) {
-      setStatus("unauthenticated");
-      return;
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
     }
 
     const payload: SystemMenuUpsertRequest = {
@@ -277,10 +271,7 @@ export function SystemMenuManager() {
 
     const response = await fetch(`/api/manager/system-menus/${menu.id}`, {
       method: "PUT",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify(payload),
     }).catch(() => null);
 
@@ -292,19 +283,6 @@ export function SystemMenuManager() {
 
     setMessage("System menu updated.");
     await loadMenus();
-  }
-
-  if (status === "unauthenticated") {
-    return (
-      <Card className="rounded-md shadow-none">
-        <CardContent className="flex flex-col gap-4 pt-5 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-slate-600">{error ?? "Log in with an admin account to manage system menus."}</p>
-          <Button asChild className="w-full sm:w-auto">
-            <LoginRedirectLink>Login</LoginRedirectLink>
-          </Button>
-        </CardContent>
-      </Card>
-    );
   }
 
   return (
@@ -413,6 +391,11 @@ export function SystemMenuManager() {
           <CardContent className="p-0">
             {status === "loading" ? (
               <div className="p-5 text-sm text-slate-500">Loading system menus...</div>
+            ) : status === "error" ? (
+              <div className="flex items-start gap-2 p-5 text-sm text-destructive">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>{error ?? "Unable to load system menus."}</p>
+              </div>
             ) : menuTree.length === 0 ? (
               <div className="p-5 text-sm text-slate-500">No system menus yet. Add the first menu record.</div>
             ) : (

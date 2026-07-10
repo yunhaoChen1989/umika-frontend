@@ -14,10 +14,6 @@ async function getToken(request: NextRequest) {
   return authorization?.replace(/^Bearer\s+/i, "") ?? cookieToken;
 }
 
-function authError() {
-  return NextResponse.json({ message: "Authentication required." }, { status: 401 });
-}
-
 async function proxyJsonResponse(response: Response) {
   const body = await response.text();
 
@@ -40,19 +36,18 @@ export async function PUT(
   },
 ) {
   const token = await getToken(request);
+  const headers = new Headers();
+  headers.set("Content-Type", "application/json");
 
-  if (!token) {
-    return authError();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
   }
 
   const { id } = await context.params;
   const payload = await request.json().catch(() => null);
   const response = await fetch(`${backendBaseUrl}/admin/system-menus/${id}`, {
     method: "PUT",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify(payload),
     cache: "no-store",
   }).catch(() => null);
@@ -71,17 +66,16 @@ export async function DELETE(
   },
 ) {
   const token = await getToken(request);
+  const headers = new Headers();
 
-  if (!token) {
-    return authError();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
   }
 
   const { id } = await context.params;
   const response = await fetch(`${backendBaseUrl}/admin/system-menus/${id}`, {
     method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
     cache: "no-store",
   }).catch(() => null);
 

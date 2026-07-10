@@ -125,7 +125,7 @@ export async function getManagerMenus(locale: Locale = defaultLocale) {
   const token = await getManagerAccessToken();
 
   if (!token) {
-    return getLocalizedManagerMenus(locale);
+    return [];
   }
 
   const url = new URL(`${managerApiBaseUrl}/manager/menus`);
@@ -147,7 +147,7 @@ export async function getManagerMenus(locale: Locale = defaultLocale) {
   clearTimeout(timeout);
 
   if (!response?.ok) {
-    return getLocalizedManagerMenus(locale);
+    return [];
   }
 
   const payload = (await response.json()) as BackendManagerMenusResponse;
