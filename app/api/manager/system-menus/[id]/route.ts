@@ -14,6 +14,10 @@ async function getToken(request: NextRequest) {
   return authorization?.replace(/^Bearer\s+/i, "") ?? cookieToken;
 }
 
+function authError() {
+  return NextResponse.json({ message: "Authentication required." }, { status: 401 });
+}
+
 async function proxyJsonResponse(response: Response) {
   const body = await response.text();
 
@@ -39,9 +43,11 @@ export async function PUT(
   const headers = new Headers();
   headers.set("Content-Type", "application/json");
 
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+  if (!token) {
+    return authError();
   }
+
+  headers.set("Authorization", `Bearer ${token}`);
 
   const { id } = await context.params;
   const payload = await request.json().catch(() => null);
@@ -68,9 +74,11 @@ export async function DELETE(
   const token = await getToken(request);
   const headers = new Headers();
 
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+  if (!token) {
+    return authError();
   }
+
+  headers.set("Authorization", `Bearer ${token}`);
 
   const { id } = await context.params;
   const response = await fetch(`${backendBaseUrl}/admin/system-menus/${id}`, {

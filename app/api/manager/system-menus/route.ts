@@ -14,6 +14,10 @@ async function getToken(request: NextRequest) {
   return authorization?.replace(/^Bearer\s+/i, "") ?? cookieToken;
 }
 
+function authError() {
+  return NextResponse.json({ message: "Authentication required." }, { status: 401 });
+}
+
 async function proxyJsonResponse(response: Response) {
   const body = await response.text();
 
@@ -33,14 +37,16 @@ export async function GET(request: NextRequest) {
   const token = await getToken(request);
   const headers = new Headers();
 
+  if (!token) {
+    return authError();
+  }
+
   const url = new URL(`${backendBaseUrl}/admin/system-menus`);
   request.nextUrl.searchParams.forEach((value, key) => {
     url.searchParams.append(key, value);
   });
 
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
+  headers.set("Authorization", `Bearer ${token}`);
 
   const response = await fetch(url, {
     method: "GET",
@@ -60,9 +66,11 @@ export async function POST(request: NextRequest) {
   const headers = new Headers();
   headers.set("Content-Type", "application/json");
 
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+  if (!token) {
+    return authError();
   }
+
+  headers.set("Authorization", `Bearer ${token}`);
 
   const payload = await request.json().catch(() => null);
   const response = await fetch(`${backendBaseUrl}/admin/system-menus`, {

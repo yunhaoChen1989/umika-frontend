@@ -31,6 +31,8 @@ type ManagerLocation = LocationDto & {
   locationId?: string | null;
 };
 
+const managerRoles = new Set(["ROLE_STAFF", "ROLE_MANAGER", "ROLE_ADMIN", "STAFF", "MANAGER", "ADMIN"]);
+
 export function ManagerShell({
   children,
   menus,
@@ -107,7 +109,7 @@ export function ManagerShell({
       if (!token) {
         setAccountName(null);
         setRoleLabel(null);
-        setAuthStatus("authenticated");
+        setAuthStatus("unauthenticated");
         return;
       }
 
@@ -126,11 +128,19 @@ export function ManagerShell({
       if (!response?.ok) {
         setAccountName(null);
         setRoleLabel(null);
-        setAuthStatus("authenticated");
+        setAuthStatus("unauthenticated");
         return;
       }
 
-      const profile = (await response.json().catch(() => null)) as CurrentAccountProfile | null;
+      const profile = unwrapCurrentAccountProfile(await response.json().catch(() => null));
+
+      if (!hasManagerRole(profile)) {
+        setAccountName(null);
+        setRoleLabel(null);
+        setAuthStatus("unauthenticated");
+        return;
+      }
+
       setAccountName(resolveAccountName(profile));
       setRoleLabel(resolveRoleLabel(profile));
       setAuthStatus("authenticated");
@@ -673,6 +683,19 @@ function resolveAccountName(profile: CurrentAccountProfile | null) {
   return profile?.name?.trim() || fullName || profile?.email?.trim() || null;
 }
 
+function unwrapCurrentAccountProfile(payload: unknown): CurrentAccountProfile | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  if ("data" in payload) {
+    const data = (payload as { data?: unknown }).data;
+    return data && typeof data === "object" ? (data as CurrentAccountProfile) : null;
+  }
+
+  return payload as CurrentAccountProfile;
+}
+
 function resolveRoleLabel(profile: CurrentAccountProfile | null) {
   const role = [...(profile?.roles ?? []), profile?.role]
     .filter((value): value is string => Boolean(value))
@@ -686,6 +709,12 @@ function resolveRoleLabel(profile: CurrentAccountProfile | null) {
     .replace(/^ROLE_/i, "")
     .toLowerCase()
     .replace(/(^|_)([a-z])/g, (_match, prefix: string, letter: string) => `${prefix ? " " : ""}${letter.toUpperCase()}`);
+}
+
+function hasManagerRole(profile: CurrentAccountProfile | null) {
+  return [...(profile?.roles ?? []), profile?.role]
+    .filter((role): role is string => Boolean(role))
+    .some((role) => managerRoles.has(role.toUpperCase()));
 }
 
 function getLocationContext(searchParams: URLSearchParams) {
