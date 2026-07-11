@@ -540,7 +540,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
               <div key={item.id} className="flex flex-col gap-3 border-b pb-4">
                 <div className="flex gap-3">
                   {item.imageUrl ? (
-                    <img alt={item.itemName} className="h-16 w-16 shrink-0 rounded-md bg-muted object-cover" src={resolveBackendMediaUrl(item.imageUrl) || item.imageUrl} />
+                    <img alt={item.itemName} className="h-16 w-16 shrink-0 rounded-md bg-muted object-cover" src={resolveBackendMediaUrl(item.imageUrl)} />
                   ) : null}
                   <div className="min-w-0 flex-1">
                     <p className="font-medium">{item.itemName}</p>

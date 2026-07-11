@@ -1,31 +1,3 @@
-const backendOrigin = (() => {
-  const configuredUrl =
-    process.env.NEXT_PUBLIC_BACKEND_ORIGIN ??
-    process.env.NEXT_PUBLIC_API_BASE_URL ??
-    process.env.BACKEND_API_BASE_URL ??
-    process.env.MANAGER_API_BASE_URL;
-
-  try {
-    if (configuredUrl) {
-      return new URL(configuredUrl.replace(/\/$/, "")).origin;
-    }
-  } catch {
-    // Fall through to runtime defaults.
-  }
-
-  if (typeof window !== "undefined") {
-    const { protocol, hostname, origin } = window.location;
-
-    if (hostname === "localhost" || hostname === "127.0.0.1") {
-      return `${protocol}//${hostname}:2026`;
-    }
-
-    return origin;
-  }
-
-  return "http://localhost:2026";
-})();
-
 export function resolveBackendMediaUrl(value?: string | null) {
   const rawValue = value?.trim();
 
@@ -33,17 +5,29 @@ export function resolveBackendMediaUrl(value?: string | null) {
     return "";
   }
 
-  if (/^https?:\/\//i.test(rawValue) || rawValue.startsWith("data:") || rawValue.startsWith("blob:")) {
+  if (rawValue.startsWith("data:") || rawValue.startsWith("blob:")) {
     return rawValue;
   }
 
-  const mediaPath = rawValue
-    .replace(/^\/?api\/v\d+\//i, "")
-    .replace(/^\/+/, "");
+  const mediaPath = normalizeMediaPath(rawValue);
 
   if (!mediaPath) {
     return "";
   }
 
-  return `${backendOrigin}/${mediaPath}`;
+  return `/api/media/${mediaPath.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+function normalizeMediaPath(value: string) {
+  try {
+    if (/^https?:\/\//i.test(value)) {
+      return normalizeMediaPath(new URL(value).pathname);
+    }
+  } catch {
+    return "";
+  }
+
+  return value
+    .replace(/^\/?api\/v\d+\//i, "")
+    .replace(/^\/+/, "");
 }
