@@ -49,6 +49,9 @@ export type CheckoutOrderItemResponse = {
   unitPrice?: number | null;
   lineTotal?: number | null;
   totalPrice?: number | null;
+  note?: string | null;
+  itemNote?: string | null;
+  specialInstructions?: string | null;
   options?: unknown;
   optionSnapshot?: unknown;
   [key: string]: unknown;

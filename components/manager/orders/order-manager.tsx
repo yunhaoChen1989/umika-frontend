@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { formatCartOptions } from "@/lib/cart-options";
 import type { CheckoutOrderItemResponse, CheckoutResponse } from "@/lib/cart-types";
 import { cn } from "@/lib/utils";
 
@@ -729,11 +730,21 @@ function PrintOrderButton({ order }: { order: CheckoutResponse }) {
 }
 
 function OrderItemRow({ item }: { item: CheckoutOrderItemResponse }) {
+  const itemOptions = formatCartOptions(item.options ?? item.optionSnapshot);
+  const itemNote = getOrderItemNote(item) ?? itemOptions.note;
+  const fallbackOptions = itemOptions.optionText || itemNote ? "" : formatOptions(item.options ?? item.optionSnapshot);
+
   return (
     <div className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[1fr_80px_100px_100px] md:items-center">
       <div className="min-w-0">
         <p className="truncate font-semibold text-slate-950">{item.itemName ?? item.name ?? "Menu item"}</p>
-        {item.options ? <p className="mt-1 truncate text-xs text-slate-500">{formatOptions(item.options)}</p> : null}
+        {itemOptions.optionText ? <p className="mt-1 text-xs text-slate-500">{itemOptions.optionText}</p> : null}
+        {itemNote ? (
+          <p className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900">
+            Item note: {itemNote}
+          </p>
+        ) : null}
+        {fallbackOptions ? <p className="mt-1 text-xs text-slate-500">{fallbackOptions}</p> : null}
       </div>
       <p className="text-slate-600">Qty {item.quantity ?? 0}</p>
       <p className="text-slate-600">{formatMoney(item.unitPrice)}</p>
@@ -1065,4 +1076,19 @@ function formatOptions(value: unknown) {
   }
 
   return JSON.stringify(value);
+}
+
+function getOrderItemNote(item: CheckoutOrderItemResponse) {
+  return (
+    getStringField(item.note) ??
+    getStringField(item.itemNote) ??
+    getStringField(item.specialInstructions) ??
+    getStringField(item.specialInstruction) ??
+    getStringField(item.instructions) ??
+    getStringField(item.itemNotes)
+  );
+}
+
+function getStringField(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
