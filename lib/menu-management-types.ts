@@ -72,6 +72,35 @@ export type MenuCatalogItemDto = {
   imageUrl?: string | null;
   images?: MenuCatalogImageDto[] | null;
   isAvailable?: boolean | null;
+  options?: MenuCatalogItemOptionDto[] | MenuCatalogOptionGroupDto[] | null;
+  optionGroups?: MenuCatalogOptionGroupDto[] | null;
+  modifiers?: MenuCatalogItemOptionDto[] | MenuCatalogOptionGroupDto[] | null;
+};
+
+export type MenuCatalogItemOptionDto = {
+  id?: string | null;
+  optionId?: string | null;
+  itemId?: string | null;
+  name?: string | null;
+  label?: string | null;
+  priceModifier?: string | number | null;
+  modifierPrice?: string | number | null;
+  price?: string | number | null;
+  isRequired?: boolean | null;
+  sortOrder?: number | null;
+  isActive?: boolean | null;
+};
+
+export type MenuCatalogOptionGroupDto = {
+  id?: string | null;
+  name?: string | null;
+  label?: string | null;
+  options?: MenuCatalogItemOptionDto[] | null;
+  modifiers?: MenuCatalogItemOptionDto[] | null;
+  isRequired?: boolean | null;
+  minSelect?: number | null;
+  maxSelect?: number | null;
+  sortOrder?: number | null;
 };
 
 export type MenuCatalogCategoryDto = {

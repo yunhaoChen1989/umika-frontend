@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { formatCartOptions } from "@/lib/cart-options";
 import type { CheckoutResponse } from "@/lib/cart-types";
 import type { Dictionary } from "@/lib/i18n";
 
@@ -165,14 +166,20 @@ export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCop
                   <div className="mt-4 border-t pt-3">
                     <p className="text-sm font-semibold">{copy.orderItems}</p>
                     <div className="mt-2 space-y-2 text-sm">
-                      {order.items.map((item, index) => (
-                        <div className="flex justify-between gap-3" key={item.id ?? `${item.itemName}-${index}`}>
-                          <span className="min-w-0 truncate">
-                            {item.itemName ?? item.name ?? item.menuItemId} x {item.quantity ?? 1}
-                          </span>
-                          <span>{formatMoney(item.totalPrice ?? item.lineTotal)}</span>
-                        </div>
-                      ))}
+                      {order.items.map((item, index) => {
+                        const itemOptions = formatCartOptions(item.options ?? item.optionSnapshot);
+
+                        return (
+                          <div className="flex justify-between gap-3" key={item.id ?? `${item.itemName}-${index}`}>
+                            <span className="min-w-0">
+                              <span className="block truncate">{item.itemName ?? item.name ?? item.menuItemId} x {item.quantity ?? 1}</span>
+                              {itemOptions.optionText ? <span className="mt-1 block truncate text-xs text-muted-foreground">{itemOptions.optionText}</span> : null}
+                              {itemOptions.note ? <span className="mt-1 block truncate text-xs text-muted-foreground">{copy.orderNote}: {itemOptions.note}</span> : null}
+                            </span>
+                            <span>{formatMoney(item.totalPrice ?? item.lineTotal)}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 ) : null}
@@ -272,19 +279,26 @@ function OrderDetailsDialog({
                 <div className="border-b border-border bg-muted/50 px-4 py-3 text-sm font-semibold">{copy.orderItems}</div>
                 {items.length ? (
                   <div className="divide-y divide-border">
-                    {items.map((item, index) => (
-                      <div className="grid gap-3 px-4 py-3 text-sm sm:grid-cols-[1fr_auto_auto_auto] sm:items-center" key={item.id ?? `${item.itemName ?? item.name}-${index}`}>
-                        <div className="min-w-0">
-                          <p className="font-semibold">{item.itemName ?? item.name ?? item.menuItemId ?? `${copy.itemFallback} ${index + 1}`}</p>
-                          {item.options || item.optionSnapshot ? <p className="mt-1 text-xs text-muted-foreground">{formatOptions(item.options ?? item.optionSnapshot)}</p> : null}
+                    {items.map((item, index) => {
+                      const itemOptions = formatCartOptions(item.options ?? item.optionSnapshot);
+                      const fallbackOptions = itemOptions.optionText || itemOptions.note ? "" : formatOptions(item.options ?? item.optionSnapshot);
+
+                      return (
+                        <div className="grid gap-3 px-4 py-3 text-sm sm:grid-cols-[1fr_auto_auto_auto] sm:items-center" key={item.id ?? `${item.itemName ?? item.name}-${index}`}>
+                          <div className="min-w-0">
+                            <p className="font-semibold">{item.itemName ?? item.name ?? item.menuItemId ?? `${copy.itemFallback} ${index + 1}`}</p>
+                            {itemOptions.optionText ? <p className="mt-1 text-xs text-muted-foreground">{itemOptions.optionText}</p> : null}
+                            {itemOptions.note ? <p className="mt-1 text-xs text-muted-foreground">{copy.orderNote}: {itemOptions.note}</p> : null}
+                            {fallbackOptions ? <p className="mt-1 text-xs text-muted-foreground">{fallbackOptions}</p> : null}
+                          </div>
+                          <p className="text-muted-foreground">
+                            {copy.quantity} {item.quantity ?? 1}
+                          </p>
+                          <p className="text-muted-foreground">{formatMoney(item.unitPrice)}</p>
+                          <p className="font-semibold">{formatMoney(item.totalPrice ?? item.lineTotal)}</p>
                         </div>
-                        <p className="text-muted-foreground">
-                          {copy.quantity} {item.quantity ?? 1}
-                        </p>
-                        <p className="text-muted-foreground">{formatMoney(item.unitPrice)}</p>
-                        <p className="font-semibold">{formatMoney(item.totalPrice ?? item.lineTotal)}</p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="px-4 py-3 text-sm text-muted-foreground">{copy.noItemDetails}</div>

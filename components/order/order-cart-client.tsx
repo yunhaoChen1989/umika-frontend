@@ -12,16 +12,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { StripePaymentSection } from "@/components/order/stripe-payment-section";
 import { cartIdKeyPrefix, getAuthHeaders, getOrCreateGuestSessionId, loadOrCreateCart, normalizeCart, normalizePayload, notifyCartChanged } from "@/lib/cart-client";
+import { formatCartOptions } from "@/lib/cart-options";
 import type { CartResponse, CheckoutResponse, RedemptionPreviewResponse } from "@/lib/cart-types";
 import { getLoginRedirectHref } from "@/lib/auth-redirect";
 import type { Dictionary } from "@/lib/i18n";
 import { resolveBackendMediaUrl } from "@/lib/media-url";
-import type { ResolvedMenuItem } from "@/lib/menu-catalog";
+import { flattenMenuCatalog, type ResolvedMenuItem } from "@/lib/menu-catalog";
+import { loadMenuItemDetail } from "@/lib/menu-item-detail-client";
+import type { MenuCatalogResponse } from "@/lib/menu-management-types";
 
 export function OrderCartClient({ copy }: { copy: Dictionary }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [menuItems, setMenuItems] = useState<ResolvedMenuItem[]>([]);
+  const [catalogItems, setCatalogItems] = useState<ResolvedMenuItem[]>([]);
   const [cart, setCart] = useState<CartResponse | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState("");
   const [redemptionPreview, setRedemptionPreview] = useState<RedemptionPreviewResponse | null>(null);
@@ -39,6 +43,11 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
   const [customTipAmount, setCustomTipAmount] = useState(0);
   const [orderType, setOrderType] = useState<"PICKUP" | "DELIVERY" | "DINE_IN">("PICKUP");
   const [requestedPickupTime, setRequestedPickupTime] = useState("");
+  const [selectedItem, setSelectedItem] = useState<ResolvedMenuItem | null>(null);
+  const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([]);
+  const [itemQuantity, setItemQuantity] = useState(1);
+  const [itemNote, setItemNote] = useState("");
+  const [isImageZoomed, setIsImageZoomed] = useState(false);
   const subtotal = Number(redemptionPreview?.subtotal ?? cart?.subtotal ?? 0);
   const tipAmount = calculateTipAmount(subtotal, tipMode, customTipAmount);
   const previewTipAmount = redemptionPreview?.tipAmount ?? tipAmount;
@@ -112,11 +121,26 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
       const frequentItemsUrl = new URL("/api/me/frequent-menu-items", window.location.origin);
       frequentItemsUrl.searchParams.set("limit", "4");
       frequentItemsUrl.searchParams.set("locationId", nextLocationId);
+      const catalogUrl = new URL("/api/menu-catalog", window.location.origin);
+      catalogUrl.searchParams.set("locationId", nextLocationId);
 
-      const menuResponse = await fetch(frequentItemsUrl.toString(), {
-        headers: getAuthHeaders(),
-        cache: "no-store",
-      }).catch(() => null);
+      const [menuResponse, catalogResponse] = await Promise.all([
+        fetch(frequentItemsUrl.toString(), {
+          headers: getAuthHeaders(),
+          cache: "no-store",
+        }).catch(() => null),
+        fetch(catalogUrl.toString(), {
+          method: "GET",
+          headers: getAuthHeaders(),
+          cache: "no-store",
+        }).catch(() => null),
+      ]);
+
+      if (catalogResponse?.ok) {
+        setCatalogItems(flattenMenuCatalog((await catalogResponse.json().catch(() => null)) as MenuCatalogResponse | null));
+      } else {
+        setCatalogItems([]);
+      }
 
       if (menuResponse?.ok) {
         setMenuItems(normalizeFrequentMenuItems(await menuResponse.json().catch(() => null), copy.menuPage.itemFallback));
@@ -176,7 +200,24 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
     }
   }, [pointsToRedeem, redemptionPreview]);
 
-  async function addItem(menuItemId: string) {
+  async function openItem(item: ResolvedMenuItem) {
+    const resolvedItem = catalogItems.find((catalogItem) => catalogItem.id === item.id) ?? item;
+    setSelectedItem(resolvedItem);
+    setSelectedOptionIds([]);
+    setItemQuantity(1);
+    setItemNote("");
+    setIsImageZoomed(false);
+    setMessage(null);
+
+    const detailItem = await loadMenuItemDetail(resolvedItem);
+    setSelectedItem((current) => (current?.id === resolvedItem.id ? detailItem : current));
+  }
+
+  function toggleOption(optionId: string) {
+    setSelectedOptionIds((current) => (current.includes(optionId) ? current.filter((id) => id !== optionId) : [...current, optionId]));
+  }
+
+  async function addItem(menuItemId: string, quantity = 1, optionIds: string[] = [], note = "") {
     if (!cart) {
       return;
     }
@@ -193,9 +234,9 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
       body: JSON.stringify({
         locationId: selectedLocationId,
         menuItemId,
-        quantity: 1,
-        optionIds: [],
-        note: null,
+        quantity,
+        optionIds,
+        note: note.trim() || null,
       }),
       cache: "no-store",
     }).catch(() => null);
@@ -212,6 +253,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
 
     if (nextCart) {
       setCart(nextCart);
+      setSelectedItem(null);
       notifyCartChanged();
     }
   }
@@ -450,23 +492,23 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
           ) : (
             menuItems.map((item) => (
               <Card key={item.id} className="flex flex-col">
-                <div className="aspect-[4/3] overflow-hidden rounded-t-md bg-muted">
+                <button className="aspect-[4/3] overflow-hidden rounded-t-md bg-muted text-left" onClick={() => void openItem(item)} type="button">
                   <img
                     alt={item.name}
                     className="h-full w-full object-cover"
                     loading="lazy"
                     src={resolveBackendMediaUrl(item.imageUrl) || "/images/umika-hero.png"}
                   />
-                </div>
+                </button>
                 <CardHeader>
-                  <div className="flex items-start justify-between gap-4">
+                  <button className="flex w-full items-start justify-between gap-4 text-left" onClick={() => void openItem(item)} type="button">
                     <CardTitle>{item.name}</CardTitle>
                     <span className="font-semibold">${Number(item.price ?? 0).toFixed(2)}</span>
-                  </div>
+                  </button>
                 </CardHeader>
                 <CardContent className="flex flex-1 flex-col">
                   <p className="text-sm leading-6 text-muted-foreground">{item.description}</p>
-                  <Button className="mt-5 w-full" disabled={!cart || pendingId === item.id} onClick={() => void addItem(item.id)} type="button">
+                  <Button className="mt-5 w-full" disabled={!cart || pendingId === item.id || item.isAvailable === false} onClick={() => void openItem(item)} type="button">
                     <Plus className="h-4 w-4" />
                     {copy.orderPage.addToCart}
                   </Button>
@@ -491,13 +533,23 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
         ) : null}
         <div className="mt-5 space-y-4">
           {cart?.items.length ? (
-            cart.items.map((item) => (
-              <div key={item.id} className="flex flex-col gap-3 border-b pb-4 min-[430px]:flex-row min-[430px]:items-center min-[430px]:justify-between">
-                <div className="min-w-0">
-                  <p className="font-medium">{item.itemName}</p>
-                  <p className="text-sm text-muted-foreground">${Number(item.unitPrice).toFixed(2)} {copy.common.priceEach}</p>
+            cart.items.map((item) => {
+              const itemOptions = formatCartOptions(item.options);
+
+              return (
+              <div key={item.id} className="flex flex-col gap-3 border-b pb-4">
+                <div className="flex gap-3">
+                  {item.imageUrl ? (
+                    <img alt={item.itemName} className="h-16 w-16 shrink-0 rounded-md bg-muted object-cover" src={resolveBackendMediaUrl(item.imageUrl) || item.imageUrl} />
+                  ) : null}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium">{item.itemName}</p>
+                    <p className="text-sm text-muted-foreground">${Number(item.unitPrice).toFixed(2)} {copy.common.priceEach}</p>
+                    {itemOptions.optionText ? <p className="mt-1 text-xs text-muted-foreground">{itemOptions.optionText}</p> : null}
+                    {itemOptions.note ? <p className="mt-1 text-xs text-muted-foreground">{copy.menuPage.specialInstructions}: {itemOptions.note}</p> : null}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-end gap-2">
                   <Button disabled={pendingId === item.id} size="icon" variant="outline" aria-label={`${copy.orderPage.removeOne} ${item.itemName}`} onClick={() => void setQuantity(item.id, item.quantity - 1)}>
                     <Minus className="h-4 w-4" />
                   </Button>
@@ -510,7 +562,8 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
                   </Button>
                 </div>
               </div>
-            ))
+              );
+            })
           ) : (
             <p className="text-sm text-muted-foreground">{copy.orderPage.emptyCart}</p>
           )}
@@ -614,6 +667,111 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
           {copy.orderPage.checkout}
         </Button>
       </aside>
+      <Dialog open={Boolean(selectedItem)} onOpenChange={(open) => !open && setSelectedItem(null)}>
+        <DialogContent className="w-[min(96vw,54rem)]">
+          {selectedItem ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>{selectedItem.name}</DialogTitle>
+                <DialogDescription>{copy.menuPage.details}</DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-5 p-5 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                <button
+                  className={isImageZoomed ? "fixed inset-0 z-[60] flex cursor-zoom-out items-center justify-center bg-black/80 p-4" : "group text-left"}
+                  onClick={() => setIsImageZoomed((current) => !current)}
+                  type="button"
+                >
+                  <img
+                    alt={selectedItem.name}
+                    className={isImageZoomed ? "max-h-[92vh] max-w-[92vw] rounded-md object-contain" : "aspect-[4/3] w-full rounded-md bg-muted object-cover"}
+                    src={resolveBackendMediaUrl(selectedItem.imageUrl) || "/images/umika-hero.png"}
+                  />
+                  {!isImageZoomed ? <span className="mt-2 block text-xs font-medium text-muted-foreground">{copy.menuPage.zoomImage}</span> : null}
+                </button>
+                <div className="min-w-0 space-y-5">
+                  <div>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <Badge>{selectedItem.isAvailable === false ? copy.menuPage.unavailable : selectedItem.categoryName}</Badge>
+                      <p className="text-lg font-semibold">${Number(selectedItem.price ?? 0).toFixed(2)}</p>
+                    </div>
+                    {selectedItem.description ? <p className="mt-3 text-sm leading-6 text-muted-foreground">{selectedItem.description}</p> : null}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">{copy.menuPage.options}</p>
+                    {selectedItem.optionGroups.length ? (
+                      <div className="mt-3 space-y-4">
+                        {selectedItem.optionGroups.map((group, groupIndex) => (
+                          <div className="rounded-md border border-border p-3" key={group.id ?? `group-${groupIndex}`}>
+                            {group.name ? <p className="mb-2 text-sm font-semibold">{group.name}</p> : null}
+                            <div className="space-y-2">
+                              {group.options.map((option) => (
+                                <label className="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50" key={option.id}>
+                                  <span className="flex min-w-0 items-center gap-2">
+                                    <input
+                                      checked={selectedOptionIds.includes(option.id)}
+                                      className="h-4 w-4 accent-primary"
+                                      onChange={() => toggleOption(option.id)}
+                                      type="checkbox"
+                                    />
+                                    <span className="truncate">{option.name}</span>
+                                  </span>
+                                  {option.priceModifier ? (
+                                    <span className="shrink-0 text-muted-foreground">
+                                      {option.priceModifier > 0 ? "+" : "-"}${Math.abs(option.priceModifier).toFixed(2)}
+                                    </span>
+                                  ) : null}
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-sm text-muted-foreground">{copy.menuPage.noOptions}</p>
+                    )}
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-[140px_1fr]">
+                    <div>
+                      <p className="text-sm font-semibold">{copy.menuPage.quantity}</p>
+                      <div className="mt-2 flex items-center gap-2">
+                        <Button size="icon" variant="outline" onClick={() => setItemQuantity((current) => Math.max(1, current - 1))} type="button">
+                          <Minus className="h-4 w-4" />
+                        </Button>
+                        <span className="w-8 text-center text-sm font-semibold">{itemQuantity}</span>
+                        <Button size="icon" variant="outline" onClick={() => setItemQuantity((current) => current + 1)} type="button">
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <label className="block text-sm font-semibold">
+                      {copy.menuPage.specialInstructions}
+                      <textarea
+                        className="mt-2 min-h-24 w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                        onChange={(event) => setItemNote(event.target.value)}
+                        placeholder={copy.menuPage.specialInstructionsPlaceholder}
+                        value={itemNote}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <DialogFooter className="justify-end">
+                <Button variant="outline" onClick={() => setSelectedItem(null)} type="button">
+                  {copy.common.cancel}
+                </Button>
+                <Button
+                  disabled={!cart || pendingId === selectedItem.id || selectedItem.isAvailable === false}
+                  onClick={() => void addItem(selectedItem.id, itemQuantity, selectedOptionIds, itemNote)}
+                  type="button"
+                >
+                  <Plus className="h-4 w-4" />
+                  {copy.orderPage.addToCart}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
       <Dialog open={isTipDialogOpen} onOpenChange={setIsTipDialogOpen}>
         <DialogContent className="w-[min(96vw,30rem)]">
           <DialogHeader>
@@ -794,10 +952,13 @@ function OrderReview({ order, copy }: { order: CheckoutResponse; copy: Dictionar
           <div className="mt-2 space-y-2">
             {items.map((item, index) => {
               const name = item.itemName ?? item.name ?? item.menuItemId ?? `${copy.orderPage.itemFallback} ${index + 1}`;
+              const itemOptions = formatCartOptions(item.options ?? item.optionSnapshot);
               return (
                 <div key={item.id ?? `${name}-${index}`} className="flex justify-between gap-3">
-                  <span className="min-w-0 truncate">
-                    {name} x {item.quantity ?? 1}
+                  <span className="min-w-0">
+                    <span className="block truncate">{name} x {item.quantity ?? 1}</span>
+                    {itemOptions.optionText ? <span className="mt-1 block truncate text-xs text-emerald-800">{itemOptions.optionText}</span> : null}
+                    {itemOptions.note ? <span className="mt-1 block truncate text-xs text-emerald-800">{copy.menuPage.specialInstructions}: {itemOptions.note}</span> : null}
                   </span>
                   <span>{formatMoney(item.lineTotal)}</span>
                 </div>
@@ -861,6 +1022,7 @@ function normalizeFrequentMenuItem(value: unknown, itemFallback: string): Resolv
     imageUrl: getString(value.imageUrl) ?? getString(value.image_url),
     displayOrder: getNumber(value.displayOrder) ?? getNumber(value.sortOrder) ?? null,
     isAvailable: getBoolean(value.isAvailable) ?? getBoolean(value.available) ?? null,
+    optionGroups: [],
   };
 }
 
