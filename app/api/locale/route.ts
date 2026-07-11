@@ -6,8 +6,12 @@ export function GET(request: NextRequest) {
   const locale = resolveLocale(request.nextUrl.searchParams.get("locale") ?? defaultLocale);
   const requestedNext = request.nextUrl.searchParams.get("next") ?? "/";
   const nextPath = requestedNext.startsWith("/") && !requestedNext.startsWith("//") ? requestedNext : "/";
-  const redirectUrl = new URL(nextPath, request.url);
-  const response = NextResponse.redirect(redirectUrl);
+  const response = new NextResponse(null, {
+    status: 303,
+    headers: {
+      Location: nextPath,
+    },
+  });
 
   response.cookies.set("umika_locale", locale, {
     httpOnly: false,
