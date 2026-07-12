@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatCartOptions } from "@/lib/cart-options";
-import type { CheckoutResponse } from "@/lib/cart-types";
+import type { CheckoutOrderItemResponse, CheckoutResponse } from "@/lib/cart-types";
 import type { Dictionary } from "@/lib/i18n";
 
 type SpringPage<T> = {
@@ -167,7 +167,7 @@ export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCop
                     <p className="text-sm font-semibold">{copy.orderItems}</p>
                     <div className="mt-2 space-y-2 text-sm">
                       {order.items.map((item, index) => {
-                        const itemOptions = formatCartOptions(item.options ?? item.optionSnapshot);
+                        const itemOptions = formatCartOptions(getOrderItemOptionSnapshot(item));
 
                         return (
                           <div className="flex justify-between gap-3" key={item.id ?? `${item.itemName}-${index}`}>
@@ -280,8 +280,9 @@ function OrderDetailsDialog({
                 {items.length ? (
                   <div className="divide-y divide-border">
                     {items.map((item, index) => {
-                      const itemOptions = formatCartOptions(item.options ?? item.optionSnapshot);
-                      const fallbackOptions = itemOptions.optionText || itemOptions.note ? "" : formatOptions(item.options ?? item.optionSnapshot);
+                      const optionSnapshot = getOrderItemOptionSnapshot(item);
+                      const itemOptions = formatCartOptions(optionSnapshot);
+                      const fallbackOptions = itemOptions.optionText || itemOptions.note ? "" : formatOptions(optionSnapshot);
 
                       return (
                         <div className="grid gap-3 px-4 py-3 text-sm sm:grid-cols-[1fr_auto_auto_auto] sm:items-center" key={item.id ?? `${item.itemName ?? item.name}-${index}`}>
@@ -352,6 +353,10 @@ function formatOptions(value: unknown) {
   }
 
   return JSON.stringify(value);
+}
+
+function getOrderItemOptionSnapshot(item: CheckoutOrderItemResponse) {
+  return item.optionSnapshot ?? item.option_snapshot ?? item.optionSnapshotJson ?? item.option_snapshot_json ?? item.options;
 }
 
 async function resolveStoredLocationId(queryLocationId: string | null | undefined, queryLocationCode: string | null | undefined) {

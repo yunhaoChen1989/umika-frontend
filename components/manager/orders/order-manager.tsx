@@ -730,9 +730,10 @@ function PrintOrderButton({ order }: { order: CheckoutResponse }) {
 }
 
 function OrderItemRow({ item }: { item: CheckoutOrderItemResponse }) {
-  const itemOptions = formatCartOptions(item.options ?? item.optionSnapshot);
+  const optionSnapshot = getOrderItemOptionSnapshot(item);
+  const itemOptions = formatCartOptions(optionSnapshot);
   const itemNote = getOrderItemNote(item) ?? itemOptions.note;
-  const fallbackOptions = itemOptions.optionText || itemNote ? "" : formatOptions(item.options ?? item.optionSnapshot);
+  const fallbackOptions = itemOptions.optionText || itemNote ? "" : formatOptions(optionSnapshot);
 
   return (
     <div className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[1fr_80px_100px_100px] md:items-center">
@@ -1079,16 +1080,50 @@ function formatOptions(value: unknown) {
 }
 
 function getOrderItemNote(item: CheckoutOrderItemResponse) {
+  const optionSnapshot = getOrderItemOptionSnapshot(item);
+  const optionPayload = parseRecordPayload(optionSnapshot);
+
   return (
     getStringField(item.note) ??
     getStringField(item.itemNote) ??
     getStringField(item.specialInstructions) ??
     getStringField(item.specialInstruction) ??
     getStringField(item.instructions) ??
-    getStringField(item.itemNotes)
+    getStringField(item.itemNotes) ??
+    getStringField(optionPayload?.note) ??
+    getStringField(optionPayload?.itemNote) ??
+    getStringField(optionPayload?.specialInstructions) ??
+    getStringField(optionPayload?.specialInstruction) ??
+    getStringField(optionPayload?.instructions) ??
+    getStringField(optionPayload?.itemNotes)
   );
 }
 
 function getStringField(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getOrderItemOptionSnapshot(item: CheckoutOrderItemResponse) {
+  return item.optionSnapshot ?? item.option_snapshot ?? item.optionSnapshotJson ?? item.option_snapshot_json ?? item.options;
+}
+
+function parseRecordPayload(value: unknown): Record<string, unknown> | null {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    if (!value.trim()) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }

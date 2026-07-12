@@ -54,6 +54,9 @@ export type CheckoutOrderItemResponse = {
   specialInstructions?: string | null;
   options?: unknown;
   optionSnapshot?: unknown;
+  option_snapshot?: unknown;
+  optionSnapshotJson?: unknown;
+  option_snapshot_json?: unknown;
   [key: string]: unknown;
 };
 
