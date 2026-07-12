@@ -617,6 +617,13 @@ function ManagerOrderDetailsDialog({
                 </div>
               </div>
 
+              {order.customerNote ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-xs font-bold uppercase tracking-wide text-amber-800">Customer note</p>
+                  <p className="mt-2 text-sm font-medium text-amber-950">{order.customerNote}</p>
+                </div>
+              ) : null}
+
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <SummaryTile label="Customer" value={getCustomerName(order)} />
                 <SummaryTile label="Email" value={getCustomerEmail(order)} />
@@ -700,12 +707,6 @@ function ManagerOrderDetailsDialog({
                 </div>
               </div>
 
-              {order.customerNote ? (
-                <div className="rounded-md border border-slate-200 p-4">
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Customer note</p>
-                  <p className="mt-2 text-sm text-slate-700">{order.customerNote}</p>
-                </div>
-              ) : null}
             </div>
           </>
         ) : null}

@@ -268,13 +268,6 @@ function OrderDetailsDialog({
                 <DetailTile label={copy.pointsEarned} value={formatNumber(order.pointsEarned)} />
               </div>
 
-              {order.customerNote ? (
-                <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
-                  <p className="font-semibold">{copy.orderNote}</p>
-                  <p className="mt-1 text-muted-foreground">{order.customerNote}</p>
-                </div>
-              ) : null}
-
               <div className="rounded-md border border-border">
                 <div className="border-b border-border bg-muted/50 px-4 py-3 text-sm font-semibold">{copy.orderItems}</div>
                 {items.length ? (
@@ -305,6 +298,13 @@ function OrderDetailsDialog({
                   <div className="px-4 py-3 text-sm text-muted-foreground">{copy.noItemDetails}</div>
                 )}
               </div>
+
+              {order.customerNote ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm">
+                  <p className="font-semibold text-amber-900">{copy.orderNote}</p>
+                  <p className="mt-1 text-amber-950">{order.customerNote}</p>
+                </div>
+              ) : null}
             </div>
           </>
         ) : null}

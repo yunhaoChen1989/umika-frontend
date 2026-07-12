@@ -935,7 +935,6 @@ function OrderReview({ order, copy }: { order: CheckoutResponse; copy: Dictionar
         {order.status ? <PreviewRow label={copy.orderPage.orderStatus} value={order.status} /> : null}
         {order.orderType ? <PreviewRow label={copy.orderPage.orderType} value={formatOrderType(order.orderType, copy)} /> : null}
         {order.requestedPickupTime ? <PreviewRow label={copy.orderPage.requestedPickupTime} value={formatPickupDateTime(order.requestedPickupTime)} /> : null}
-        {order.customerNote ? <PreviewRow label={copy.orderPage.customerNote} value={order.customerNote} /> : null}
         <PreviewRow label={copy.orderPage.subtotal} value={formatMoney(order.subtotal)} />
         <PreviewRow label={copy.orderPage.totalDiscount} value={formatMoney(order.totalDiscount)} />
         <PreviewRow label={copy.orderPage.redemptionAmount} value={formatMoney(order.rewardDiscountAmount)} />
@@ -965,6 +964,12 @@ function OrderReview({ order, copy }: { order: CheckoutResponse; copy: Dictionar
               );
             })}
           </div>
+        </div>
+      ) : null}
+      {order.customerNote ? (
+        <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+          <p className="font-semibold text-amber-900">{copy.orderPage.customerNote}</p>
+          <p className="mt-1 text-amber-950">{order.customerNote}</p>
         </div>
       ) : null}
       <p className="mt-4 text-xs text-emerald-800">{copy.orderPage.paymentNext}</p>
