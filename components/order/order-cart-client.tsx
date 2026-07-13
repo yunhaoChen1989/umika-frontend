@@ -21,6 +21,18 @@ import { flattenMenuCatalog, type ResolvedMenuItem } from "@/lib/menu-catalog";
 import { loadMenuItemDetail } from "@/lib/menu-item-detail-client";
 import type { MenuCatalogResponse } from "@/lib/menu-management-types";
 
+type CouponApplyResponse = Partial<CartResponse> & {
+  cartId?: string | null;
+  couponId?: string | null;
+  coupon_id?: string | null;
+  couponCode?: string | null;
+  coupon_code?: string | null;
+  couponDiscount?: number | null;
+  coupon_discount?: number | null;
+  taxableAmount?: number | null;
+  message?: string | null;
+};
+
 export function OrderCartClient({ copy }: { copy: Dictionary }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -39,6 +51,8 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
   const [sessionId, setSessionId] = useState("");
   const [pointsToRedeem, setPointsToRedeem] = useState(0);
   const [customerNote, setCustomerNote] = useState("");
+  const [couponCode, setCouponCode] = useState("");
+  const [couponPending, setCouponPending] = useState(false);
   const [tipMode, setTipMode] = useState<"0" | "10" | "15" | "18" | "custom">("0");
   const [customTipAmount, setCustomTipAmount] = useState(0);
   const [orderType, setOrderType] = useState<"PICKUP" | "DELIVERY" | "DINE_IN">("PICKUP");
@@ -185,7 +199,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
       window.clearTimeout(timeout);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart?.id, cart?.subtotal, cart?.items.length, pointsToRedeem, tipAmount]);
+  }, [cart?.id, cart?.subtotal, cart?.items.length, cart?.couponCode, cart?.couponDiscount, pointsToRedeem, tipAmount]);
 
   useEffect(() => {
     if (!redemptionPreview) {
@@ -321,6 +335,83 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
       setCart(nextCart);
       notifyCartChanged();
     }
+  }
+
+  async function applyCoupon() {
+    if (!cart?.id) {
+      return;
+    }
+
+    const normalizedCoupon = couponCode.trim();
+    if (!normalizedCoupon) {
+      setMessage("Enter a coupon code.");
+      return;
+    }
+
+    setCouponPending(true);
+    setMessage(null);
+
+    const headers = getAuthHeaders();
+    headers.set("Content-Type", "application/json");
+
+    const response = await fetch(`/api/cart/${cart.id}/coupon?sessionId=${encodeURIComponent(sessionId)}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ couponCode: normalizedCoupon }),
+      cache: "no-store",
+    }).catch(() => null);
+
+    setCouponPending(false);
+
+    const body = response ? await response.json().catch(() => null) : null;
+
+    if (!response?.ok) {
+      setMessage(resolveErrorMessage(body, "Unable to apply coupon."));
+      return;
+    }
+
+    const payload = normalizePayload<CouponApplyResponse>(body);
+    if (payload) {
+      setCart((current) => mergeCouponCart(current, payload));
+      setCouponCode("");
+      setMessage(payload.message ?? "Coupon applied.");
+      notifyCartChanged();
+    }
+  }
+
+  async function removeCoupon() {
+    if (!cart?.id) {
+      return;
+    }
+
+    setCouponPending(true);
+    setMessage(null);
+
+    const response = await fetch(`/api/cart/${cart.id}/coupon?sessionId=${encodeURIComponent(sessionId)}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    }).catch(() => null);
+
+    setCouponPending(false);
+
+    const body = response ? await response.json().catch(() => null) : null;
+
+    if (!response?.ok) {
+      setMessage(resolveErrorMessage(body, "Unable to remove coupon."));
+      return;
+    }
+
+    const payload = normalizePayload<Partial<CartResponse>>(body);
+    if (payload && (payload.id || payload.items)) {
+      setCart((current) => current ? { ...current, ...payload } : normalizeCart(payload));
+    } else if (selectedLocationId) {
+      await loadCart(selectedLocationId).catch(() => null);
+    } else {
+      setCart((current) => current ? { ...current, couponId: null, couponCode: null, couponDiscount: null } : current);
+    }
+    setMessage("Coupon removed.");
+    notifyCartChanged();
   }
 
   async function previewRedemption({ redirectOnAuthError = false }: { redirectOnAuthError?: boolean } = {}) {
@@ -573,6 +664,37 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
             <span className="text-muted-foreground">{copy.orderPage.subtotal}</span>
             <span>${subtotal.toFixed(2)}</span>
           </div>
+          <div className="space-y-2 border-t pt-3">
+            <label className="block text-sm font-medium">
+              Coupon
+              <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
+                <input
+                  className="h-10 w-full rounded-md border bg-background px-3 text-sm uppercase outline-none focus:ring-2 focus:ring-ring"
+                  disabled={couponPending || Boolean(cart?.couponCode)}
+                  onChange={(event) => setCouponCode(event.target.value)}
+                  placeholder="WELCOME10"
+                  value={couponCode}
+                />
+                {cart?.couponCode ? (
+                  <Button type="button" variant="outline" disabled={couponPending} onClick={() => void removeCoupon()}>
+                    Remove
+                  </Button>
+                ) : (
+                  <Button type="button" disabled={couponPending || !cart?.items.length} onClick={() => void applyCoupon()}>
+                    {couponPending ? "Applying..." : "Apply"}
+                  </Button>
+                )}
+              </div>
+            </label>
+            {cart?.couponCode ? (
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold">{cart.couponCode}</span>
+                  <span>{formatDiscountAmount(cart.couponDiscount)}</span>
+                </div>
+              </div>
+            ) : null}
+          </div>
           <label className="block pt-2 text-sm font-medium">
             {copy.orderPage.orderType}
             <select
@@ -640,6 +762,12 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
             <span className="text-muted-foreground">{copy.orderPage.redemptionAmount}</span>
             <span>{formatMoney(redemptionAmount)}</span>
           </div>
+          {cart?.couponCode || Number(cart?.couponDiscount ?? 0) > 0 ? (
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Coupon discount</span>
+              <span>{formatDiscountAmount(cart?.couponDiscount)}</span>
+            </div>
+          ) : null}
           <div className="flex justify-between">
             <span className="text-muted-foreground">{copy.orderPage.tax}</span>
             <span>{formatMoney(tax)}</span>
@@ -820,6 +948,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
             <div className="space-y-2 rounded-md border bg-muted/30 p-3 text-sm">
               <PreviewRow label={copy.orderPage.subtotal} value={formatMoney(subtotal)} />
               {orderType === "PICKUP" && requestedPickupTime ? <PreviewRow label={copy.orderPage.requestedPickupTime} value={formatPickupDateTime(requestedPickupTime)} /> : null}
+              {cart?.couponCode || Number(cart?.couponDiscount ?? 0) > 0 ? <PreviewRow label="Coupon discount" value={formatDiscountAmount(cart?.couponDiscount)} /> : null}
               <PreviewRow label={copy.orderPage.redemptionAmount} value={formatMoney(redemptionAmount)} />
               <PreviewRow label={copy.orderPage.tax} value={formatMoney(tax)} />
               <PreviewRow label={copy.orderPage.tipAmount} value={formatMoney(previewTipAmount)} />
@@ -937,6 +1066,7 @@ function OrderReview({ order, copy }: { order: CheckoutResponse; copy: Dictionar
         {order.requestedPickupTime ? <PreviewRow label={copy.orderPage.requestedPickupTime} value={formatPickupDateTime(order.requestedPickupTime)} /> : null}
         <PreviewRow label={copy.orderPage.subtotal} value={formatMoney(order.subtotal)} />
         <PreviewRow label={copy.orderPage.totalDiscount} value={formatMoney(order.totalDiscount)} />
+        {typeof order.couponDiscount === "number" ? <PreviewRow label="Coupon discount" value={formatDiscountAmount(order.couponDiscount)} /> : null}
         <PreviewRow label={copy.orderPage.redemptionAmount} value={formatMoney(order.rewardDiscountAmount)} />
         {typeof order.tipAmount === "number" ? <PreviewRow label={copy.orderPage.tipAmount} value={formatMoney(order.tipAmount)} /> : null}
         <PreviewRow label={copy.orderPage.taxRate} value={formatPercent(order.taxRate)} />
@@ -991,6 +1121,25 @@ function resolveErrorMessage(body: unknown, fallback: string) {
   return fallback;
 }
 
+function mergeCouponCart(current: CartResponse | null, payload: CouponApplyResponse): CartResponse | null {
+  if (payload.id && payload.items) {
+    return payload as CartResponse;
+  }
+
+  if (!current) {
+    return null;
+  }
+
+  return {
+    ...current,
+    id: payload.cartId ?? payload.id ?? current.id,
+    subtotal: typeof payload.subtotal === "number" ? payload.subtotal : current.subtotal,
+    couponId: payload.couponId ?? payload.coupon_id ?? current.couponId ?? null,
+    couponCode: payload.couponCode ?? payload.coupon_code ?? current.couponCode ?? null,
+    couponDiscount: getNumber(payload.couponDiscount) ?? getNumber(payload.coupon_discount) ?? current.couponDiscount ?? null,
+  };
+}
+
 function normalizeFrequentMenuItems(body: unknown, itemFallback: string): ResolvedMenuItem[] {
   const payload = normalizePayload<unknown>(body);
   const values = Array.isArray(payload)
@@ -1033,6 +1182,10 @@ function normalizeFrequentMenuItem(value: unknown, itemFallback: string): Resolv
 
 function formatMoney(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? `$${value.toFixed(2)}` : "--";
+}
+
+function formatDiscountAmount(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? `-${formatMoney(value)}` : "--";
 }
 
 function getString(value: unknown) {

@@ -16,6 +16,12 @@ export type CartResponse = {
   locationId: string;
   status: string;
   subtotal: number;
+  couponId?: string | null;
+  couponCode?: string | null;
+  couponDiscount?: number | null;
+  coupon_id?: string | null;
+  coupon_code?: string | null;
+  coupon_discount?: number | null;
   items: CartItemResponse[];
   createdAt: string | null;
   updatedAt: string | null;
@@ -33,6 +39,7 @@ export type RedemptionPreviewResponse = {
   taxRate?: number | null;
   taxAmount?: number | null;
   tax?: number | null;
+  couponDiscount?: number | null;
   tipAmount?: number | null;
   finalTotal?: number | null;
   total?: number | null;
@@ -74,6 +81,7 @@ export type CheckoutResponse = {
   status?: string | null;
   subtotal?: number | null;
   totalDiscount?: number | null;
+  couponDiscount?: number | null;
   taxRate?: number | null;
   taxAmount?: number | null;
   tax?: number | null;
