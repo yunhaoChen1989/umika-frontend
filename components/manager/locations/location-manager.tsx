@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { AlertCircle, CheckCircle2, Copy, ExternalLink, Pencil, Plus, RefreshCw, Store, Trash2, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock3, Copy, ExternalLink, Pencil, Plus, RefreshCw, Store, Trash2, X } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { StatusPill } from "@/components/manager/status-pill";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { LocationDto, SpringPage } from "@/lib/location-types";
 
 type LocationFormState = {
@@ -24,6 +25,23 @@ type LocationFormState = {
   isActive: boolean;
 };
 
+type BusinessHour = {
+  id?: string | null;
+  locationId?: string | null;
+  dayOfWeek: number;
+  openTime?: string | null;
+  closeTime?: string | null;
+  isClosed?: boolean | null;
+};
+
+type BusinessHourForm = {
+  id: string;
+  dayOfWeek: string;
+  openTime: string;
+  closeTime: string;
+  isClosed: boolean;
+};
+
 const emptyForm: LocationFormState = {
   id: "",
   name: "",
@@ -38,6 +56,16 @@ const emptyForm: LocationFormState = {
   isActive: true,
 };
 
+const emptyHourForm: BusinessHourForm = {
+  id: "",
+  dayOfWeek: "1",
+  openTime: "11:00",
+  closeTime: "21:00",
+  isClosed: false,
+};
+
+const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
 export function LocationManager() {
   const [locations, setLocations] = useState<LocationDto[]>([]);
   const [form, setForm] = useState<LocationFormState>(emptyForm);
@@ -48,8 +76,15 @@ export function LocationManager() {
   const [error, setError] = useState<string | null>(null);
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [publicOrigin, setPublicOrigin] = useState("");
+  const [hoursDialogLocation, setHoursDialogLocation] = useState<LocationDto | null>(null);
+  const [businessHours, setBusinessHours] = useState<BusinessHour[]>([]);
+  const [hourForm, setHourForm] = useState<BusinessHourForm>(emptyHourForm);
+  const [hoursStatus, setHoursStatus] = useState<"idle" | "loading" | "saving">("idle");
+  const [hoursMessage, setHoursMessage] = useState<string | null>(null);
+  const [hoursError, setHoursError] = useState<string | null>(null);
 
   const isEditing = Boolean(form.id);
+  const isEditingHour = Boolean(hourForm.id);
 
   const loadLocations = useCallback(async () => {
     const currentToken = localStorage.getItem("umika_access_token");
@@ -276,6 +311,142 @@ export function LocationManager() {
     await navigator.clipboard.writeText(url).catch(() => null);
     setMessage("Location URL copied.");
     setError(null);
+  }
+
+  async function openHoursDialog(location: LocationDto) {
+    setHoursDialogLocation(location);
+    setHourForm({ ...emptyHourForm, dayOfWeek: getNextAvailableDay([]) });
+    setBusinessHours([]);
+    setHoursMessage(null);
+    setHoursError(null);
+    await loadBusinessHours(location);
+  }
+
+  async function loadBusinessHours(location = hoursDialogLocation) {
+    if (!location?.id) {
+      return;
+    }
+
+    setHoursStatus("loading");
+    setHoursError(null);
+
+    const url = new URL("/api/business-hours", window.location.origin);
+    url.searchParams.set("locationId", location.id);
+
+    const response = await fetch(url.toString(), {
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    }).catch(() => null);
+
+    setHoursStatus("idle");
+
+    if (!response?.ok) {
+      const body = response ? await response.json().catch(() => null) : null;
+      setBusinessHours([]);
+      setHoursError(getApiErrorMessage(body, "Unable to load store hours."));
+      return;
+    }
+
+    const body = (await response.json().catch(() => null)) as SpringPage<BusinessHour> | BusinessHour[] | null;
+    const hours = Array.isArray(body) ? body : body?.content ?? [];
+    setBusinessHours(hours.sort((a, b) => a.dayOfWeek - b.dayOfWeek));
+    setHourForm((current) => current.id ? current : { ...current, dayOfWeek: getNextAvailableDay(hours) });
+  }
+
+  function editBusinessHour(hour: BusinessHour) {
+    setHourForm({
+      id: hour.id ?? "",
+      dayOfWeek: String(hour.dayOfWeek),
+      openTime: toTimeInput(hour.openTime),
+      closeTime: toTimeInput(hour.closeTime),
+      isClosed: hour.isClosed === true,
+    });
+    setHoursMessage(null);
+    setHoursError(null);
+  }
+
+  function clearHourForm() {
+    setHourForm({ ...emptyHourForm, dayOfWeek: getNextAvailableDay(businessHours) });
+    setHoursMessage(null);
+    setHoursError(null);
+  }
+
+  async function saveBusinessHour(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!hoursDialogLocation?.id) {
+      return;
+    }
+
+    const dayOfWeek = Number(hourForm.dayOfWeek);
+    const payload = {
+      locationId: hoursDialogLocation.id,
+      dayOfWeek,
+      openTime: hourForm.isClosed ? null : hourForm.openTime,
+      closeTime: hourForm.isClosed ? null : hourForm.closeTime,
+      isClosed: hourForm.isClosed,
+    };
+
+    setHoursStatus("saving");
+    setHoursMessage(null);
+    setHoursError(null);
+
+    const response = await fetch(hourForm.id ? `/api/manager/business-hours/${encodeURIComponent(hourForm.id)}` : "/api/manager/business-hours", {
+      method: hourForm.id ? "PUT" : "POST",
+      headers: {
+        ...getAuthHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    }).catch(() => null);
+
+    setHoursStatus("idle");
+
+    if (!response?.ok) {
+      const body = response ? await response.json().catch(() => null) : null;
+      setHoursError(getApiErrorMessage(body, "Unable to save store hours."));
+      return;
+    }
+
+    setHoursMessage(hourForm.id ? "Store hours updated." : "Store hours added.");
+    clearHourForm();
+    await loadBusinessHours(hoursDialogLocation);
+  }
+
+  async function deleteBusinessHour(hour: BusinessHour) {
+    if (!hour.id || !hoursDialogLocation) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete hours for ${dayNames[hour.dayOfWeek] ?? "this day"}?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setHoursStatus("saving");
+    setHoursMessage(null);
+    setHoursError(null);
+
+    const response = await fetch(`/api/manager/business-hours/${encodeURIComponent(hour.id)}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    }).catch(() => null);
+
+    setHoursStatus("idle");
+
+    if (!response?.ok) {
+      const body = response ? await response.json().catch(() => null) : null;
+      setHoursError(getApiErrorMessage(body, "Unable to delete store hours."));
+      return;
+    }
+
+    setHoursMessage("Store hours deleted.");
+    if (hourForm.id === hour.id) {
+      clearHourForm();
+    }
+    await loadBusinessHours(hoursDialogLocation);
   }
 
   if (status === "unauthenticated") {
@@ -510,6 +681,9 @@ export function LocationManager() {
                           <ExternalLink className="h-4 w-4" />
                         </a>
                       </Button>
+                      <Button onClick={() => void openHoursDialog(location)} size="icon" type="button" variant="outline" aria-label={`Edit hours for ${location.name}`}>
+                        <Clock3 className="h-4 w-4" />
+                      </Button>
                       <Button onClick={() => selectLocation(location)} size="icon" type="button" variant="outline" aria-label={`Edit ${location.name}`}>
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -535,6 +709,119 @@ export function LocationManager() {
         </CardContent>
       </Card>
       </div>
+      <Dialog
+        open={Boolean(hoursDialogLocation)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setHoursDialogLocation(null);
+            setBusinessHours([]);
+            setHourForm(emptyHourForm);
+            setHoursMessage(null);
+            setHoursError(null);
+          }
+        }}
+      >
+        <DialogContent className="w-[min(96vw,58rem)]">
+          <DialogHeader>
+            <DialogTitle>{hoursDialogLocation ? `Store hours: ${hoursDialogLocation.name}` : "Store hours"}</DialogTitle>
+            <DialogDescription>Add, edit, or remove weekly business hours. Backend enforces one row per day and permission scope.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-5 p-5 xl:grid-cols-[1fr_320px]">
+            <div className="rounded-md border border-slate-200">
+              <div className="border-b border-slate-200 bg-slate-100 px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">
+                Weekly hours
+              </div>
+              {hoursStatus === "loading" ? <div className="p-4 text-sm text-slate-500">Loading store hours...</div> : null}
+              {hoursStatus !== "loading" && businessHours.length === 0 ? <div className="p-4 text-sm text-slate-500">No hours configured yet.</div> : null}
+              {businessHours.length ? (
+                <div className="divide-y divide-slate-200">
+                  {businessHours.map((hour) => (
+                    <div className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[130px_1fr_120px] md:items-center" key={hour.id ?? `${hour.locationId}-${hour.dayOfWeek}`}>
+                      <p className="font-semibold text-slate-950">{dayNames[hour.dayOfWeek] ?? `Day ${hour.dayOfWeek}`}</p>
+                      <p className="text-slate-600">{hour.isClosed ? "Closed" : `${toTimeInput(hour.openTime)} - ${toTimeInput(hour.closeTime)}`}</p>
+                      <div className="flex gap-2 md:justify-end">
+                        <Button type="button" size="icon" variant="outline" aria-label={`Edit ${dayNames[hour.dayOfWeek]} hours`} onClick={() => editBusinessHour(hour)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button type="button" size="icon" variant="outline" aria-label={`Delete ${dayNames[hour.dayOfWeek]} hours`} disabled={hoursStatus === "saving"} onClick={() => void deleteBusinessHour(hour)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <form className="space-y-4 rounded-md border border-slate-200 p-4" onSubmit={(event) => void saveBusinessHour(event)}>
+              <div>
+                <p className="text-sm font-semibold text-slate-950">{isEditingHour ? "Edit hours" : "Add hours"}</p>
+                <p className="mt-1 text-xs text-slate-500">Closed days do not need open or close times.</p>
+              </div>
+              <Field label="Day of week" required>
+                <select
+                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  value={hourForm.dayOfWeek}
+                  onChange={(event) => setHourForm((current) => ({ ...current, dayOfWeek: event.target.value }))}
+                >
+                  {dayNames.map((day, index) => (
+                    <option key={day} value={index}>{day}</option>
+                  ))}
+                </select>
+              </Field>
+              <label className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">
+                <input
+                  checked={hourForm.isClosed}
+                  className="h-4 w-4 accent-primary"
+                  onChange={(event) => setHourForm((current) => ({ ...current, isClosed: event.target.checked }))}
+                  type="checkbox"
+                />
+                Closed all day
+              </label>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+                <Field label="Open time" required={!hourForm.isClosed}>
+                  <input
+                    className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-slate-100"
+                    disabled={hourForm.isClosed}
+                    onChange={(event) => setHourForm((current) => ({ ...current, openTime: event.target.value }))}
+                    required={!hourForm.isClosed}
+                    type="time"
+                    value={hourForm.openTime}
+                  />
+                </Field>
+                <Field label="Close time" required={!hourForm.isClosed}>
+                  <input
+                    className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring disabled:bg-slate-100"
+                    disabled={hourForm.isClosed}
+                    onChange={(event) => setHourForm((current) => ({ ...current, closeTime: event.target.value }))}
+                    required={!hourForm.isClosed}
+                    type="time"
+                    value={hourForm.closeTime}
+                  />
+                </Field>
+              </div>
+              {hoursError ? (
+                <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>{hoursError}</p>
+                </div>
+              ) : null}
+              {hoursMessage ? (
+                <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>{hoursMessage}</p>
+                </div>
+              ) : null}
+              <DialogFooter className="px-0 pb-0">
+                <Button type="button" variant="outline" onClick={clearHourForm}>Clear</Button>
+                <Button type="submit" disabled={hoursStatus === "saving"}>
+                  {hoursStatus === "saving" ? "Saving..." : isEditingHour ? "Update hours" : "Add hours"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -547,6 +834,44 @@ function getLocationUrl(location: LocationDto, origin: string) {
   const url = new URL("/", origin);
   url.searchParams.set("locationCode", location.locationCode);
   return url.toString();
+}
+
+function getAuthHeaders() {
+  const token = localStorage.getItem("umika_access_token");
+  const headers: Record<string, string> = {};
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  return headers;
+}
+
+function getApiErrorMessage(body: unknown, fallback: string) {
+  if (body && typeof body === "object") {
+    if ("message" in body && typeof body.message === "string" && body.message.trim()) {
+      return body.message;
+    }
+    if ("error" in body && body.error && typeof body.error === "object" && "message" in body.error && typeof body.error.message === "string") {
+      return body.error.message;
+    }
+  }
+
+  return fallback;
+}
+
+function toTimeInput(value: string | null | undefined) {
+  if (!value) {
+    return "";
+  }
+
+  return value.slice(0, 5);
+}
+
+function getNextAvailableDay(hours: BusinessHour[]) {
+  const usedDays = new Set(hours.map((hour) => hour.dayOfWeek));
+  const nextDay = dayNames.findIndex((_, index) => !usedDays.has(index));
+  return String(nextDay >= 0 ? nextDay : 1);
 }
 
 function Field({
