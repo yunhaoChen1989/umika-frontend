@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 
+import { ProfileCompletionDialog } from "@/components/account/profile-completion-dialog";
 import { LocationCodeKeeper } from "@/components/layout/location-code-keeper";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
@@ -17,6 +18,7 @@ export function GlobalChrome({ children, locale }: { children: React.ReactNode; 
       <>
         <LocationCodeKeeper />
         {children}
+        <ProfileCompletionDialog locale={locale} />
       </>
     );
   }
@@ -27,6 +29,7 @@ export function GlobalChrome({ children, locale }: { children: React.ReactNode; 
       <SiteHeader locale={locale} />
       <main>{children}</main>
       <SiteFooter locale={locale} showLocationInfo={isHomeRoute} />
+      <ProfileCompletionDialog locale={locale} />
     </>
   );
 }

@@ -9,6 +9,7 @@ import { AlertCircle, LockKeyhole, Mail, Phone, User, UserPlus } from "lucide-re
 import { Button } from "@/components/ui/button";
 import { getLoginRedirectHref } from "@/lib/auth-redirect";
 import type { Locale } from "@/lib/i18n";
+import { requestProfileCompletionPrompt } from "@/lib/profile-completion-prompt";
 
 type RegisterCopy = {
   firstName: string;
@@ -91,6 +92,7 @@ export function RegisterForm({ copy, locale, redirectPath }: { copy: RegisterCop
     if (body?.accessToken) {
       localStorage.setItem("umika_access_token", body.accessToken);
       localStorage.setItem("umika_token_type", body.tokenType ?? "Bearer");
+      requestProfileCompletionPrompt();
       window.dispatchEvent(new Event("umika-auth-changed"));
     }
 

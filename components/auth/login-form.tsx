@@ -8,6 +8,7 @@ import { AlertCircle, LogIn, Mail } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { defaultPostLoginPath, getSafeRedirectPath } from "@/lib/auth-redirect";
+import { requestProfileCompletionPrompt } from "@/lib/profile-completion-prompt";
 
 type LoginCopy = {
   email: string;
@@ -191,6 +192,7 @@ export function LoginForm({ copy, redirectPath }: { copy: LoginCopy; redirectPat
     if (body?.accessToken) {
       localStorage.setItem("umika_access_token", body.accessToken);
       localStorage.setItem("umika_token_type", body.tokenType ?? "Bearer");
+      requestProfileCompletionPrompt();
       window.dispatchEvent(new Event("umika-auth-changed"));
     }
 
