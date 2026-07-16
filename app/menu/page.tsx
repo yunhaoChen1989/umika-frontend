@@ -14,7 +14,7 @@ export default async function MenuPage() {
           <h1 className="mt-2 font-serif text-4xl font-semibold sm:text-5xl">{dict.menuPage.title}</h1>
         </div>
       </div>
-      <MenuCatalogClient copy={dict} />
+      <MenuCatalogClient copy={dict} locale={locale} />
     </section>
   );
 }

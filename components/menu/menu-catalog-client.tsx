@@ -12,13 +12,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { getAuthHeaders, getOrCreateGuestSessionId, loadOrCreateCart, normalizeCart, notifyCartChanged } from "@/lib/cart-client";
 import type { CartResponse } from "@/lib/cart-types";
-import type { Dictionary } from "@/lib/i18n";
+import type { Dictionary, Locale } from "@/lib/i18n";
 import { flattenMenuCatalog, flattenMenuCategories, type ResolvedMenuCategory, type ResolvedMenuItem } from "@/lib/menu-catalog";
 import { loadMenuItemDetail } from "@/lib/menu-item-detail-client";
 import type { MenuCatalogResponse } from "@/lib/menu-management-types";
 import { resolveBackendMediaUrl } from "@/lib/media-url";
 
-export function MenuCatalogClient({ copy }: { copy: Dictionary }) {
+export function MenuCatalogClient({ copy, locale }: { copy: Dictionary; locale: Locale }) {
   const searchParams = useSearchParams();
   const [categories, setCategories] = useState<ResolvedMenuCategory[]>([]);
   const [items, setItems] = useState<ResolvedMenuItem[]>([]);
@@ -93,8 +93,8 @@ export function MenuCatalogClient({ copy }: { copy: Dictionary }) {
         return;
       }
 
-      setCategories(flattenMenuCategories(catalog));
-      setItems(flattenMenuCatalog(catalog));
+      setCategories(flattenMenuCategories(catalog, locale));
+      setItems(flattenMenuCatalog(catalog, locale));
       setSelectedCategoryId("all");
       setCart(null);
       setStatus("ready");
@@ -105,7 +105,7 @@ export function MenuCatalogClient({ copy }: { copy: Dictionary }) {
     return () => {
       active = false;
     };
-  }, [copy.menuPage.loadError, searchParams]);
+  }, [copy.menuPage.loadError, locale, searchParams]);
 
   async function openItem(item: ResolvedMenuItem) {
     setSelectedItem(item);
@@ -115,7 +115,7 @@ export function MenuCatalogClient({ copy }: { copy: Dictionary }) {
     setIsImageZoomed(false);
     setMessage(null);
 
-    const detailItem = await loadMenuItemDetail(item);
+    const detailItem = await loadMenuItemDetail(item, locale);
     setSelectedItem((current) => (current?.id === item.id ? detailItem : current));
   }
 

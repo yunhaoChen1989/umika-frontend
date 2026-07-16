@@ -15,7 +15,7 @@ import { cartIdKeyPrefix, getAuthHeaders, getOrCreateGuestSessionId, loadOrCreat
 import { formatCartOptions } from "@/lib/cart-options";
 import type { CartResponse, CheckoutResponse, RedemptionPreviewResponse } from "@/lib/cart-types";
 import { getLoginRedirectHref } from "@/lib/auth-redirect";
-import type { Dictionary } from "@/lib/i18n";
+import type { Dictionary, Locale } from "@/lib/i18n";
 import { resolveBackendMediaUrl } from "@/lib/media-url";
 import { flattenMenuCatalog, type ResolvedMenuItem } from "@/lib/menu-catalog";
 import { loadMenuItemDetail } from "@/lib/menu-item-detail-client";
@@ -33,7 +33,7 @@ type CouponApplyResponse = Partial<CartResponse> & {
   message?: string | null;
 };
 
-export function OrderCartClient({ copy }: { copy: Dictionary }) {
+export function OrderCartClient({ copy, locale }: { copy: Dictionary; locale: Locale }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [menuItems, setMenuItems] = useState<ResolvedMenuItem[]>([]);
@@ -151,7 +151,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
       ]);
 
       if (catalogResponse?.ok) {
-        setCatalogItems(flattenMenuCatalog((await catalogResponse.json().catch(() => null)) as MenuCatalogResponse | null));
+        setCatalogItems(flattenMenuCatalog((await catalogResponse.json().catch(() => null)) as MenuCatalogResponse | null, locale));
       } else {
         setCatalogItems([]);
       }
@@ -183,7 +183,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
     return () => {
       active = false;
     };
-  }, [copy.menuPage.itemFallback, copy.menuPage.loadError, copy.orderPage.cartError, copy.orderPage.locationRequired, loadCart, searchParams, sessionId]);
+  }, [copy.menuPage.itemFallback, copy.menuPage.loadError, copy.orderPage.cartError, copy.orderPage.locationRequired, loadCart, locale, searchParams, sessionId]);
 
   useEffect(() => {
     if (!cart?.items.length) {
@@ -223,7 +223,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
     setIsImageZoomed(false);
     setMessage(null);
 
-    const detailItem = await loadMenuItemDetail(resolvedItem);
+    const detailItem = await loadMenuItemDetail(resolvedItem, locale);
     setSelectedItem((current) => (current?.id === resolvedItem.id ? detailItem : current));
   }
 
@@ -344,7 +344,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
 
     const normalizedCoupon = couponCode.trim();
     if (!normalizedCoupon) {
-      setMessage("Enter a coupon code.");
+      setMessage(copy.orderPage.enterCoupon);
       return;
     }
 
@@ -366,7 +366,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
     const body = response ? await response.json().catch(() => null) : null;
 
     if (!response?.ok) {
-      setMessage(resolveErrorMessage(body, "Unable to apply coupon."));
+      setMessage(resolveErrorMessage(body, copy.orderPage.applyCouponError));
       return;
     }
 
@@ -374,7 +374,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
     if (payload) {
       setCart((current) => mergeCouponCart(current, payload));
       setCouponCode("");
-      setMessage(payload.message ?? "Coupon applied.");
+      setMessage(payload.message ?? copy.orderPage.couponApplied);
       notifyCartChanged();
     }
   }
@@ -398,7 +398,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
     const body = response ? await response.json().catch(() => null) : null;
 
     if (!response?.ok) {
-      setMessage(resolveErrorMessage(body, "Unable to remove coupon."));
+      setMessage(resolveErrorMessage(body, copy.orderPage.removeCouponError));
       return;
     }
 
@@ -410,7 +410,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
     } else {
       setCart((current) => current ? { ...current, couponId: null, couponCode: null, couponDiscount: null } : current);
     }
-    setMessage("Coupon removed.");
+    setMessage(copy.orderPage.couponRemoved);
     notifyCartChanged();
   }
 
@@ -666,22 +666,23 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
           </div>
           <div className="space-y-2 border-t pt-3">
             <label className="block text-sm font-medium">
-              Coupon
+              {copy.orderPage.coupon}
               <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
                 <input
                   className="h-10 w-full rounded-md border bg-background px-3 text-sm uppercase outline-none focus:ring-2 focus:ring-ring"
                   disabled={couponPending || Boolean(cart?.couponCode)}
                   onChange={(event) => setCouponCode(event.target.value)}
+                  aria-label={copy.orderPage.couponPlaceholder}
                   placeholder="WELCOME10"
                   value={couponCode}
                 />
                 {cart?.couponCode ? (
                   <Button type="button" variant="outline" disabled={couponPending} onClick={() => void removeCoupon()}>
-                    Remove
+                    {copy.orderPage.removeCoupon}
                   </Button>
                 ) : (
                   <Button type="button" disabled={couponPending || !cart?.items.length} onClick={() => void applyCoupon()}>
-                    {couponPending ? "Applying..." : "Apply"}
+                    {couponPending ? copy.orderPage.applyingCoupon : copy.orderPage.applyCoupon}
                   </Button>
                 )}
               </div>
@@ -764,7 +765,7 @@ export function OrderCartClient({ copy }: { copy: Dictionary }) {
           </div>
           {cart?.couponCode || Number(cart?.couponDiscount ?? 0) > 0 ? (
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Coupon discount</span>
+              <span className="text-muted-foreground">{copy.orderPage.couponDiscount}</span>
               <span>{formatDiscountAmount(cart?.couponDiscount)}</span>
             </div>
           ) : null}

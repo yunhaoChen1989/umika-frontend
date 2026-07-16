@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { backendBaseUrl, proxyJsonResponse } from "@/lib/backend-proxy";
+import { backendBaseUrl, getAuthHeaders, proxyJsonResponse } from "@/lib/backend-proxy";
 
 export async function GET(request: NextRequest) {
   const url = new URL(`${backendBaseUrl}/menu-recommendations`);
@@ -10,6 +10,7 @@ export async function GET(request: NextRequest) {
 
   const response = await fetch(url, {
     method: "GET",
+    headers: getAuthHeaders(request),
     cache: "no-store",
   }).catch(() => null);
 

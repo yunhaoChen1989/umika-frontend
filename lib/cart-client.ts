@@ -19,6 +19,15 @@ export function getOrCreateGuestSessionId() {
 export function getAuthHeaders() {
   const token = localStorage.getItem("umika_access_token");
   const headers = new Headers();
+  const locale = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("umika_locale="))
+    ?.split("=", 2)[1];
+
+  if (locale) {
+    headers.set("Accept-Language", locale === "zh" ? "zh-CN" : locale === "ko" ? "ko-KR" : "en-CA");
+  }
 
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);

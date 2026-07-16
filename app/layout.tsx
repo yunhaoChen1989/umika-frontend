@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { GlobalChrome } from "@/components/layout/global-chrome";
+import { RuntimeTranslator } from "@/components/layout/runtime-translator";
 import { getCurrentLocale } from "@/lib/i18n-server";
 
 import "./globals.css";
@@ -22,6 +23,7 @@ export default async function RootLayout({
     <html lang={locale === "zh" ? "zh-CN" : locale === "ko" ? "ko" : "en"}>
       <body className="min-h-screen font-sans antialiased">
         <GlobalChrome locale={locale}>{children}</GlobalChrome>
+        <RuntimeTranslator locale={locale} />
       </body>
     </html>
   );

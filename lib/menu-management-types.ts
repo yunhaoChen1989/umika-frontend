@@ -75,6 +75,11 @@ export type MenuCatalogItemDto = {
   options?: MenuCatalogItemOptionDto[] | MenuCatalogOptionGroupDto[] | null;
   optionGroups?: MenuCatalogOptionGroupDto[] | null;
   modifiers?: MenuCatalogItemOptionDto[] | MenuCatalogOptionGroupDto[] | null;
+  translations?: LocalizedFields | null;
+  nameZh?: string | null;
+  nameKo?: string | null;
+  descriptionZh?: string | null;
+  descriptionKo?: string | null;
 };
 
 export type MenuCatalogItemOptionDto = {
@@ -89,6 +94,11 @@ export type MenuCatalogItemOptionDto = {
   isRequired?: boolean | null;
   sortOrder?: number | null;
   isActive?: boolean | null;
+  translations?: LocalizedFields | null;
+  nameZh?: string | null;
+  nameKo?: string | null;
+  labelZh?: string | null;
+  labelKo?: string | null;
 };
 
 export type MenuCatalogOptionGroupDto = {
@@ -101,6 +111,11 @@ export type MenuCatalogOptionGroupDto = {
   minSelect?: number | null;
   maxSelect?: number | null;
   sortOrder?: number | null;
+  translations?: LocalizedFields | null;
+  nameZh?: string | null;
+  nameKo?: string | null;
+  labelZh?: string | null;
+  labelKo?: string | null;
 };
 
 export type MenuCatalogCategoryDto = {
@@ -113,7 +128,16 @@ export type MenuCatalogCategoryDto = {
   isActive?: boolean | null;
   isDeleted?: boolean | null;
   items?: MenuCatalogItemDto[] | null;
+  translations?: LocalizedFields | null;
+  nameZh?: string | null;
+  nameKo?: string | null;
+  descriptionZh?: string | null;
+  descriptionKo?: string | null;
 };
+
+export type LocalizedFields = Partial<
+  Record<"en" | "zh" | "ko" | "en-CA" | "zh-CN" | "ko-KR", Record<string, string | null> | string>
+>;
 
 export type MenuCatalogResponse = {
   locationId?: string | null;

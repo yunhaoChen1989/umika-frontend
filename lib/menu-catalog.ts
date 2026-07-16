@@ -1,4 +1,5 @@
 import type { MenuCatalogCategoryDto, MenuCatalogItemDto, MenuCatalogItemOptionDto, MenuCatalogOptionGroupDto, MenuCatalogResponse } from "@/lib/menu-management-types";
+import type { Locale } from "@/lib/i18n";
 
 export type ResolvedMenuCategory = {
   id: string;
@@ -37,12 +38,12 @@ export type ResolvedMenuOption = {
   sortOrder: number | null;
 };
 
-export function flattenMenuCategories(catalog: MenuCatalogResponse | null | undefined): ResolvedMenuCategory[] {
+export function flattenMenuCategories(catalog: MenuCatalogResponse | null | undefined, locale: Locale = "en"): ResolvedMenuCategory[] {
   return (catalog?.categories ?? [])
     .filter((category): category is MenuCatalogCategoryDto & { id: string } => Boolean(category.id))
     .map((category) => ({
       id: category.id,
-      name: category.name,
+      name: getLocalizedString(category, "name", locale) ?? category.name,
       sortOrder: category.sortOrder,
     }))
     .sort((a, b) => {
@@ -51,7 +52,7 @@ export function flattenMenuCategories(catalog: MenuCatalogResponse | null | unde
     });
 }
 
-export function flattenMenuCatalog(catalog: MenuCatalogResponse | null | undefined): ResolvedMenuItem[] {
+export function flattenMenuCatalog(catalog: MenuCatalogResponse | null | undefined, locale: Locale = "en"): ResolvedMenuItem[] {
   const items: ResolvedMenuItem[] = [];
 
   for (const category of catalog?.categories ?? []) {
@@ -67,14 +68,14 @@ export function flattenMenuCatalog(catalog: MenuCatalogResponse | null | undefin
       items.push({
         id: item.id,
         categoryId: item.categoryId ?? category.id,
-        categoryName: category.name,
-        name: item.name,
-        description: item.description,
+        categoryName: getLocalizedString(category, "name", locale) ?? category.name,
+        name: getLocalizedString(item, "name", locale) ?? item.name,
+        description: getLocalizedString(item, "description", locale) ?? item.description,
         price: Number(item.price ?? 0),
         imageUrl: item.imageUrl ?? getImageUrl(item.images),
         displayOrder: item.displayOrder ?? item.sortOrder,
         isAvailable: item.isAvailable ?? null,
-        optionGroups: normalizeOptionGroups(item),
+        optionGroups: normalizeOptionGroups(item, locale),
       });
     }
   }
@@ -85,18 +86,18 @@ export function flattenMenuCatalog(catalog: MenuCatalogResponse | null | undefin
   });
 }
 
-export function mergeResolvedMenuItemDetail(base: ResolvedMenuItem, detail: unknown): ResolvedMenuItem {
+export function mergeResolvedMenuItemDetail(base: ResolvedMenuItem, detail: unknown, locale: Locale = "en"): ResolvedMenuItem {
   if (!isRecord(detail)) {
     return base;
   }
 
-  const optionGroups = normalizeOptionGroups(detail as MenuCatalogItemDto);
+  const optionGroups = normalizeOptionGroups(detail as MenuCatalogItemDto, locale);
 
   return {
     ...base,
     categoryId: getString(detail.categoryId) ?? base.categoryId,
-    name: getString(detail.name) ?? base.name,
-    description: getString(detail.description) ?? base.description,
+    name: getLocalizedString(detail, "name", locale) ?? base.name,
+    description: getLocalizedString(detail, "description", locale) ?? base.description,
     price: getNumber(detail.price) ?? base.price,
     imageUrl: getString(detail.imageUrl) ?? getImageUrl(detail.images) ?? base.imageUrl,
     displayOrder: getNumber(detail.displayOrder) ?? getNumber(detail.sortOrder) ?? base.displayOrder,
@@ -105,12 +106,15 @@ export function mergeResolvedMenuItemDetail(base: ResolvedMenuItem, detail: unkn
   };
 }
 
-function normalizeOptionGroups(item: MenuCatalogItemDto): ResolvedMenuOptionGroup[] {
-  const directOptions = normalizeOptions(readArray(item.options), null);
+function normalizeOptionGroups(item: MenuCatalogItemDto, locale: Locale): ResolvedMenuOptionGroup[] {
+  const directOptions = normalizeOptions(readArray(item.options), null, locale);
   const groups = [
-    ...normalizeGroups(readArray(item.optionGroups)),
-    ...normalizeGroups(readArray(item.modifiers)),
-    ...normalizeGroups(readArray(item.options).filter((entry) => isRecord(entry) && (Array.isArray(entry.options) || Array.isArray(entry.modifiers)))),
+    ...normalizeGroups(readArray(item.optionGroups), locale),
+    ...normalizeGroups(readArray(item.modifiers), locale),
+    ...normalizeGroups(
+      readArray(item.options).filter((entry) => isRecord(entry) && (Array.isArray(entry.options) || Array.isArray(entry.modifiers))),
+      locale,
+    ),
   ];
 
   if (directOptions.length > 0) {
@@ -138,26 +142,30 @@ function getImageUrl(value: unknown) {
     .find(Boolean) ?? null;
 }
 
-function normalizeGroups(values: unknown[]): ResolvedMenuOptionGroup[] {
+function normalizeGroups(values: unknown[], locale: Locale): ResolvedMenuOptionGroup[] {
   return values
     .filter(isRecord)
     .map((group) => ({
       id: getString(group.id),
-      name: getString(group.name) ?? getString(group.label) ?? "",
+      name: getLocalizedString(group, "name", locale) ?? getLocalizedString(group, "label", locale) ?? "",
       isRequired: getBoolean(group.isRequired),
       minSelect: getNumber(group.minSelect),
       maxSelect: getNumber(group.maxSelect),
       sortOrder: getNumber(group.sortOrder),
-      options: normalizeOptions(readArray(group.options).length ? readArray(group.options) : readArray(group.modifiers), getBoolean(group.isRequired)),
+      options: normalizeOptions(
+        readArray(group.options).length ? readArray(group.options) : readArray(group.modifiers),
+        getBoolean(group.isRequired),
+        locale,
+      ),
     }));
 }
 
-function normalizeOptions(values: unknown[], groupRequired: boolean | null): ResolvedMenuOption[] {
+function normalizeOptions(values: unknown[], groupRequired: boolean | null, locale: Locale): ResolvedMenuOption[] {
   return values
     .filter(isOptionRecord)
     .map((value) => {
       const id = getString(value.id) ?? getString(value.optionId);
-      const name = getString(value.name) ?? getString(value.label);
+      const name = getLocalizedString(value, "name", locale) ?? getLocalizedString(value, "label", locale);
 
       if (!id || !name || value.isActive === false) {
         return null;
@@ -201,6 +209,33 @@ function isRecord(value: unknown): value is Record<string, unknown> & MenuCatalo
 
 function getString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getLocalizedString(record: Record<string, unknown>, field: string, locale: Locale) {
+  const suffix = locale === "zh" ? "Zh" : locale === "ko" ? "Ko" : "En";
+  const snakeSuffix = locale === "zh" ? "zh" : locale === "ko" ? "ko" : "en";
+  const direct = getString(record[`${field}${suffix}`]) ?? getString(record[`${field}_${snakeSuffix}`]);
+
+  if (direct) {
+    return direct;
+  }
+
+  const translations = record.translations;
+
+  if (translations && typeof translations === "object") {
+    const languageTag = locale === "zh" ? "zh-CN" : locale === "ko" ? "ko-KR" : "en-CA";
+    const localized = (translations as Record<string, unknown>)[locale] ?? (translations as Record<string, unknown>)[languageTag];
+
+    if (typeof localized === "string" && field === "name") {
+      return getString(localized);
+    }
+
+    if (localized && typeof localized === "object") {
+      return getString((localized as Record<string, unknown>)[field]);
+    }
+  }
+
+  return getString(record[field]);
 }
 
 function getNumber(value: unknown) {
