@@ -25,9 +25,7 @@ export function getAuthHeaders() {
     .find((part) => part.startsWith("umika_locale="))
     ?.split("=", 2)[1];
 
-  if (locale) {
-    headers.set("Accept-Language", locale === "zh" ? "zh-CN" : locale === "ko" ? "ko-KR" : "en-CA");
-  }
+  headers.set("Accept-Language", locale === "zh" ? "zh-CN" : locale === "ko" ? "ko-KR" : "en-CA");
 
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);

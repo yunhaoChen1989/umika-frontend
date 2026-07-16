@@ -78,8 +78,13 @@ export function DialogContent({
         className="absolute inset-0 cursor-default bg-black/50"
         onClick={() => onOpenChange(false)}
       />
-      <div className="absolute inset-x-0 top-1/2 mx-auto w-[min(96vw,56rem)] -translate-y-1/2 px-4">
-        <div className={cn("relative max-h-[88vh] overflow-y-auto rounded-lg border border-border bg-background shadow-xl", className)}>
+      <div className="absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-center px-4">
+        <div
+          className={cn(
+            "relative max-h-[calc(100dvh-2rem)] max-w-full overflow-y-auto rounded-lg border border-border bg-background shadow-xl",
+            className,
+          )}
+        >
           <button
             type="button"
             aria-label="Close dialog"
