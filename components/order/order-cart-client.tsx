@@ -150,14 +150,15 @@ export function OrderCartClient({ copy, locale }: { copy: Dictionary; locale: Lo
         }).catch(() => null),
       ]);
 
-      if (catalogResponse?.ok) {
-        setCatalogItems(flattenMenuCatalog((await catalogResponse.json().catch(() => null)) as MenuCatalogResponse | null, locale));
-      } else {
-        setCatalogItems([]);
-      }
+      const nextCatalogItems = catalogResponse?.ok
+        ? flattenMenuCatalog((await catalogResponse.json().catch(() => null)) as MenuCatalogResponse | null, locale)
+        : [];
+      setCatalogItems(nextCatalogItems);
 
       if (menuResponse?.ok) {
         setMenuItems(normalizeFrequentMenuItems(await menuResponse.json().catch(() => null), copy.menuPage.itemFallback));
+      } else if (menuResponse?.status === 401 || menuResponse?.status === 403) {
+        setMenuItems(nextCatalogItems.slice(0, 4));
       } else {
         const body = menuResponse ? await menuResponse.json().catch(() => null) : null;
         setMessage(resolveErrorMessage(body, copy.menuPage.loadError));
@@ -187,6 +188,11 @@ export function OrderCartClient({ copy, locale }: { copy: Dictionary; locale: Lo
 
   useEffect(() => {
     if (!cart?.items.length) {
+      setRedemptionPreview(null);
+      return;
+    }
+
+    if (!localStorage.getItem("umika_access_token")) {
       setRedemptionPreview(null);
       return;
     }
@@ -540,6 +546,40 @@ export function OrderCartClient({ copy, locale }: { copy: Dictionary; locale: Lo
     }
   }
 
+  async function startCheckout() {
+    if (!localStorage.getItem("umika_access_token")) {
+      window.location.assign(getLoginRedirectHref(getCurrentPath(pathname, searchParams)));
+      return;
+    }
+
+    setMessage(null);
+    setIsCheckingOut(true);
+
+    const response = await fetch("/api/me/profile", {
+      method: "GET",
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    }).catch(() => null);
+
+    setIsCheckingOut(false);
+
+    if (response?.status === 401 || response?.status === 403) {
+      localStorage.removeItem("umika_access_token");
+      localStorage.removeItem("umika_token_type");
+      window.dispatchEvent(new Event("umika-auth-changed"));
+      window.location.assign(getLoginRedirectHref(getCurrentPath(pathname, searchParams)));
+      return;
+    }
+
+    if (!response?.ok) {
+      const body = response ? await response.json().catch(() => null) : null;
+      setMessage(resolveErrorMessage(body, copy.orderPage.checkoutError));
+      return;
+    }
+
+    setIsTipDialogOpen(true);
+  }
+
   function resetOrderPageState() {
     setMessage(null);
     setPendingId(null);
@@ -791,7 +831,7 @@ export function OrderCartClient({ copy, locale }: { copy: Dictionary; locale: Lo
             </Button>
           </>
         ) : null}
-        <Button className="mt-6 w-full whitespace-normal" disabled={!cart?.items.length || isCheckingOut} size="lg" onClick={() => setIsTipDialogOpen(true)} type="button">
+        <Button className="mt-6 w-full whitespace-normal" disabled={!cart?.items.length || isCheckingOut} size="lg" onClick={() => void startCheckout()} type="button">
           <CreditCard className="h-4 w-4" />
           {copy.orderPage.checkout}
         </Button>

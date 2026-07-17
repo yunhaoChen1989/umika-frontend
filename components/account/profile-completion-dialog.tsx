@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Phone, UserRound } from "lucide-react";
+import { AlertCircle, CalendarDays, Globe2, Phone, UserRound } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,17 +13,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getAuthHeaders, normalizePayload } from "@/lib/cart-client";
-import { getDictionary, type Locale } from "@/lib/i18n";
+import { getDictionary, localeLabels, locales, resolveLocale, type Locale } from "@/lib/i18n";
 import { profileCompletionPromptEventName, profileCompletionPromptKey } from "@/lib/profile-completion-prompt";
 
 type AccountProfile = {
   firstName?: string | null;
   lastName?: string | null;
   phone?: string | null;
+  birthday?: string | null;
+  preferredLanguage?: string | null;
 };
 
 function isMissingRequiredProfileInfo(profile: AccountProfile | null) {
-  return !profile?.firstName?.trim() || !profile?.lastName?.trim() || !profile?.phone?.trim();
+  return !profile?.firstName?.trim() || !profile?.lastName?.trim() || !profile?.phone?.trim() || !profile?.birthday;
 }
 
 export function ProfileCompletionDialog({ locale }: { locale: Locale }) {
@@ -33,6 +35,8 @@ export function ProfileCompletionDialog({ locale }: { locale: Locale }) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
+  const [birthday, setBirthday] = useState("");
+  const [preferredLanguage, setPreferredLanguage] = useState<Locale>(locale);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -73,8 +77,10 @@ export function ProfileCompletionDialog({ locale }: { locale: Locale }) {
     setFirstName(profile?.firstName ?? "");
     setLastName(profile?.lastName ?? "");
     setPhone(profile?.phone ?? "");
+    setBirthday(profile?.birthday?.slice(0, 10) ?? "");
+    setPreferredLanguage(profile?.preferredLanguage ? resolveLocale(profile.preferredLanguage) : locale);
     setOpen(true);
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     void checkProfile();
@@ -114,7 +120,8 @@ export function ProfileCompletionDialog({ locale }: { locale: Locale }) {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         phone: phone.trim(),
-        preferredLanguage: locale,
+        birthday: birthday || null,
+        preferredLanguage,
       }),
     }).catch(() => null);
 
@@ -129,11 +136,16 @@ export function ProfileCompletionDialog({ locale }: { locale: Locale }) {
     localStorage.removeItem(profileCompletionPromptKey);
     setOpen(false);
     window.dispatchEvent(new Event("umika-auth-changed"));
+
+    if (preferredLanguage !== locale) {
+      const nextPath = `${window.location.pathname}${window.location.search}`;
+      window.location.assign(`/api/locale?locale=${preferredLanguage}&next=${encodeURIComponent(nextPath)}`);
+    }
   }
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => (nextOpen ? setOpen(true) : dismissPrompt())}>
-      <DialogContent className="w-full max-w-lg">
+      <DialogContent className="max-h-[90svh] w-[min(96vw,32rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{copy.title}</DialogTitle>
           <DialogDescription>{copy.description}</DialogDescription>
@@ -183,6 +195,41 @@ export function ProfileCompletionDialog({ locale }: { locale: Locale }) {
               />
             </div>
           </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block text-sm font-medium" htmlFor="profilePromptBirthday">
+              {copy.birthday}
+              <div className="mt-2 flex items-center gap-2 rounded-md border bg-background px-3">
+                <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                <input
+                  id="profilePromptBirthday"
+                  autoComplete="bday"
+                  className="h-11 w-full bg-transparent text-sm outline-none"
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={(event) => setBirthday(event.target.value)}
+                  type="date"
+                  value={birthday}
+                />
+              </div>
+            </label>
+            <label className="block text-sm font-medium" htmlFor="profilePromptPreferredLanguage">
+              {copy.preferredLanguage}
+              <div className="mt-2 flex items-center gap-2 rounded-md border bg-background px-3">
+                <Globe2 className="h-4 w-4 text-muted-foreground" />
+                <select
+                  id="profilePromptPreferredLanguage"
+                  className="h-11 w-full bg-transparent text-sm outline-none"
+                  onChange={(event) => setPreferredLanguage(resolveLocale(event.target.value))}
+                  value={preferredLanguage}
+                >
+                  {locales.map((item) => (
+                    <option key={item} value={item}>
+                      {localeLabels[item]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </label>
+          </div>
           {error ? (
             <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />

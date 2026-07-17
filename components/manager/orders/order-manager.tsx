@@ -12,9 +12,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { formatCartOptions } from "@/lib/cart-options";
 import type { CheckoutOrderItemResponse, CheckoutResponse } from "@/lib/cart-types";
+import type { LocationDto } from "@/lib/location-types";
 import { cn } from "@/lib/utils";
 
 type OrderStatus = "PENDING" | "PAID" | "PREPARING" | "READY" | "COMPLETED" | "CANCELLED";
+type DateMode = "exact" | "range";
+
+type OrderInquiryFilters = {
+  email: string;
+  customerName: string;
+  phone: string;
+  notes: string;
+  dateMode: DateMode;
+  orderDate: string;
+  orderDateFrom: string;
+  orderDateTo: string;
+  locationId: string;
+  status: string;
+};
 
 type SpringPage<T> = {
   content?: T[];
@@ -27,6 +42,18 @@ type SpringPage<T> = {
 const ORDER_STATUSES: OrderStatus[] = ["PENDING", "PAID", "PREPARING", "READY", "COMPLETED", "CANCELLED"];
 const ORDER_NOTIFICATION_WS_URL = process.env.NEXT_PUBLIC_ORDER_NOTIFICATION_WS_URL?.trim();
 const ORDER_NOTIFICATION_WS_PREFIX = (process.env.NEXT_PUBLIC_ORDER_NOTIFICATION_WS_PREFIX ?? "/api/v1").replace(/\/$/, "");
+const emptyInquiryFilters: OrderInquiryFilters = {
+  email: "",
+  customerName: "",
+  phone: "",
+  notes: "",
+  dateMode: "exact",
+  orderDate: "",
+  orderDateFrom: "",
+  orderDateTo: "",
+  locationId: "",
+  status: "",
+};
 
 const statusClasses: Record<string, string> = {
   PENDING: "border-amber-200 bg-amber-50 text-amber-800",
@@ -42,11 +69,14 @@ export function OrderManager() {
   const [orders, setOrders] = useState<CheckoutResponse[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [detailOrderId, setDetailOrderId] = useState("");
-  const [emailQuery, setEmailQuery] = useState("");
-  const [emailFilter, setEmailFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [filters, setFilters] = useState<OrderInquiryFilters>(emptyInquiryFilters);
+  const [appliedFilters, setAppliedFilters] = useState<OrderInquiryFilters>(emptyInquiryFilters);
+  const [headerLocationId, setHeaderLocationId] = useState("");
+  const [isLocationContextReady, setIsLocationContextReady] = useState(false);
+  const [locations, setLocations] = useState<LocationDto[]>([]);
+  const [locationLoadError, setLocationLoadError] = useState<string | null>(null);
   const [pageNumber, setPageNumber] = useState(0);
-  const [pageSize] = useState(20);
+  const [pageSize] = useState(50);
   const [totalElements, setTotalElements] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "unauthenticated" | "error">("idle");
@@ -70,17 +100,73 @@ export function OrderManager() {
   const locationKey = `${locationContext.locationId ?? ""}:${locationContext.locationCode ?? ""}`;
 
   useEffect(() => {
-    setOrders([]);
-    setSelectedOrderId("");
-    setDetailOrderId("");
-    setPageNumber(0);
-    setTotalElements(0);
-    setTotalPages(0);
-    setStatus("idle");
-    setMessage(null);
-    setError(null);
-    setDialogError(null);
-  }, [locationKey]);
+    let active = true;
+
+    async function syncHeaderLocation() {
+      setIsLocationContextReady(false);
+      const locationId = await resolveLocationId(locationContext);
+
+      if (!active) {
+        return;
+      }
+
+      if (!locationId && locationContext.locationCode) {
+        setHeaderLocationId("");
+        setIsLocationContextReady(true);
+        setOrders([]);
+        setSelectedOrderId("");
+        setDetailOrderId("");
+        setPageNumber(0);
+        setTotalElements(0);
+        setTotalPages(0);
+        setStatus("error");
+        setError("Unable to resolve the selected header location. Please choose the location again.");
+        return;
+      }
+
+      setHeaderLocationId(locationId);
+      setIsLocationContextReady(true);
+      const nextFilters = { ...emptyInquiryFilters, locationId };
+      setFilters(nextFilters);
+      setAppliedFilters(nextFilters);
+      setOrders([]);
+      setSelectedOrderId("");
+      setDetailOrderId("");
+      setPageNumber(0);
+      setTotalElements(0);
+      setTotalPages(0);
+      setStatus("idle");
+      setMessage(null);
+      setError(null);
+      setDialogError(null);
+    }
+
+    void syncHeaderLocation();
+
+    return () => {
+      active = false;
+    };
+  }, [locationContext, locationKey]);
+
+  useEffect(() => {
+    const responsePromise = fetch("/api/manager/locations?page=0&size=300&sort=name,asc", {
+      method: "GET",
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    }).catch(() => null);
+
+    void responsePromise.then(async (response) => {
+      if (!response?.ok) {
+        const body = response ? await response.json().catch(() => null) : null;
+        setLocationLoadError(getApiErrorMessage(body, "Unable to load location selector."));
+        return;
+      }
+
+      const body = (await response.json().catch(() => null)) as SpringPage<LocationDto> | LocationDto[] | null;
+      setLocations(Array.isArray(body) ? body : body?.content ?? []);
+      setLocationLoadError(null);
+    });
+  }, []);
 
   useEffect(() => {
     activeAlertOrderIdRef.current = activeAlertOrderId;
@@ -171,35 +257,36 @@ export function OrderManager() {
     };
   }, [locationContext, locationKey, soundEnabled]);
 
-  const loadOrders = useCallback(async (page: number, email: string = emailFilter) => {
+  const loadOrders = useCallback(async (page: number, activeFilters: OrderInquiryFilters) => {
     setStatus("loading");
     setMessage(null);
     setError(null);
 
-    const locationId = await resolveLocationId(locationContext);
-
-    if (!locationId && locationContext.locationCode) {
-      setStatus("error");
-      setError("Unable to resolve the selected header location. Please choose the location again.");
-      return;
-    }
-
     const url = new URL("/api/orders", window.location.origin);
-    const normalizedEmail = email.trim();
-    if (normalizedEmail) {
-      url.searchParams.set("email", normalizedEmail);
+    const normalizedFilters = normalizeInquiryFilters(activeFilters);
+    const setIfPresent = (key: string, value: string) => {
+      if (value.trim()) {
+        url.searchParams.set(key, value.trim());
+      }
+    };
+
+    setIfPresent("email", normalizedFilters.email);
+    setIfPresent("customerName", normalizedFilters.customerName);
+    setIfPresent("phone", normalizedFilters.phone);
+    setIfPresent("notes", normalizedFilters.notes);
+    setIfPresent("locationId", normalizedFilters.locationId);
+    setIfPresent("status", normalizedFilters.status);
+
+    if (normalizedFilters.dateMode === "exact") {
+      setIfPresent("orderDate", normalizedFilters.orderDate);
+    } else {
+      setIfPresent("orderDateFrom", normalizedFilters.orderDateFrom);
+      setIfPresent("orderDateTo", normalizedFilters.orderDateTo);
     }
+
     url.searchParams.set("page", String(Math.max(0, page)));
     url.searchParams.set("size", String(pageSize));
     url.searchParams.set("sort", "createdAt,desc");
-
-    if (locationId) {
-      url.searchParams.set("locationId", locationId);
-    }
-
-    if (statusFilter) {
-      url.searchParams.set("status", statusFilter);
-    }
 
     const response = await fetch(url.toString(), {
       method: "GET",
@@ -230,17 +317,28 @@ export function OrderManager() {
     setTotalPages(nextTotalPages);
     setStatus(loadedOrders.length > 0 ? "ready" : "idle");
     setMessage(loadedOrders.length === 0 ? "No orders found." : null);
-  }, [emailFilter, locationContext, pageSize, statusFilter]);
+  }, [pageSize]);
 
   useEffect(() => {
-    void loadOrders(0, emailFilter);
-  }, [emailFilter, loadOrders, locationKey, statusFilter]);
+    if (!isLocationContextReady) {
+      return;
+    }
+
+    void loadOrders(0, appliedFilters);
+  }, [appliedFilters, isLocationContextReady, loadOrders, locationKey]);
 
   function searchOrders(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
-    const email = emailQuery.trim();
-    setEmailFilter(email);
-    void loadOrders(0, email);
+    const nextFilters = normalizeInquiryFilters(filters);
+    setAppliedFilters(nextFilters);
+    void loadOrders(0, nextFilters);
+  }
+
+  function resetFilters() {
+    const nextFilters = { ...emptyInquiryFilters, locationId: headerLocationId };
+    setFilters(nextFilters);
+    setAppliedFilters(nextFilters);
+    void loadOrders(0, nextFilters);
   }
 
   async function acceptOrder(order: CheckoutResponse, requestedPickupTime?: string) {
@@ -426,23 +524,115 @@ export function OrderManager() {
           <CardTitle className="text-base">Order filters</CardTitle>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-3 lg:grid-cols-[1fr_220px_auto]" onSubmit={(event) => void searchOrders(event)}>
+          <form className="grid gap-3 xl:grid-cols-4" onSubmit={(event) => void searchOrders(event)}>
+            <label className="block">
+              <span className="text-sm font-semibold text-slate-700">Date mode</span>
+              <select
+                className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                onChange={(event) => setFilters((current) => ({ ...current, dateMode: event.target.value as DateMode }))}
+                value={filters.dateMode}
+              >
+                <option value="exact">Exact date</option>
+                <option value="range">Date range</option>
+              </select>
+            </label>
+            {filters.dateMode === "exact" ? (
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-700">Order date</span>
+                <input
+                  className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  onChange={(event) => setFilters((current) => ({ ...current, orderDate: event.target.value }))}
+                  type="date"
+                  value={filters.orderDate}
+                />
+              </label>
+            ) : (
+              <>
+                <label className="block">
+                  <span className="text-sm font-semibold text-slate-700">Date from</span>
+                  <input
+                    className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                    onChange={(event) => setFilters((current) => ({ ...current, orderDateFrom: event.target.value }))}
+                    type="date"
+                    value={filters.orderDateFrom}
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-sm font-semibold text-slate-700">Date to</span>
+                  <input
+                    className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                    onChange={(event) => setFilters((current) => ({ ...current, orderDateTo: event.target.value }))}
+                    type="date"
+                    value={filters.orderDateTo}
+                  />
+                </label>
+              </>
+            )}
+            <label className="block">
+              <span className="text-sm font-semibold text-slate-700">Customer name</span>
+              <input
+                className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                onChange={(event) => setFilters((current) => ({ ...current, customerName: event.target.value }))}
+                placeholder="Optional name"
+                value={filters.customerName}
+              />
+            </label>
             <label className="block">
               <span className="text-sm font-semibold text-slate-700">Customer email</span>
               <input
                 className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                onChange={(event) => setEmailQuery(event.target.value)}
+                onChange={(event) => setFilters((current) => ({ ...current, email: event.target.value }))}
                 placeholder="Optional customer email"
                 type="email"
-                value={emailQuery}
+                value={filters.email}
               />
+            </label>
+            <label className="block">
+              <span className="text-sm font-semibold text-slate-700">Phone</span>
+              <input
+                className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                onChange={(event) => setFilters((current) => ({ ...current, phone: event.target.value }))}
+                placeholder="Optional phone"
+                value={filters.phone}
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-semibold text-slate-700">Notes</span>
+              <input
+                className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                onChange={(event) => setFilters((current) => ({ ...current, notes: event.target.value }))}
+                placeholder="Customer or internal notes"
+                value={filters.notes}
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-semibold text-slate-700">Location</span>
+              <select
+                className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                onChange={(event) => setFilters((current) => ({ ...current, locationId: event.target.value }))}
+                value={filters.locationId}
+              >
+                <option value="">All permitted locations</option>
+                {locations.map((location) => {
+                  const locationId = getLocationId(location);
+                  return locationId ? (
+                    <option key={locationId} value={locationId}>
+                      {location.name}{location.locationCode ? ` (${location.locationCode})` : ""}
+                    </option>
+                  ) : null;
+                })}
+                {filters.locationId && !locations.some((location) => getLocationId(location) === filters.locationId) ? (
+                  <option value={filters.locationId}>Selected header location</option>
+                ) : null}
+              </select>
+              {locationLoadError ? <span className="mt-1 block text-xs text-amber-700">{locationLoadError}</span> : null}
             </label>
             <label className="block">
               <span className="text-sm font-semibold text-slate-700">Status</span>
               <select
                 className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                onChange={(event) => setStatusFilter(event.target.value)}
-                value={statusFilter}
+                onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
+                value={filters.status}
               >
                 <option value="">All statuses</option>
                 {ORDER_STATUSES.map((item) => (
@@ -452,14 +642,17 @@ export function OrderManager() {
                 ))}
               </select>
             </label>
-            <div className="flex items-end gap-2">
-              <Button className="w-full lg:w-auto" disabled={status === "loading"} type="submit">
+            <div className="flex flex-col gap-2 sm:flex-row xl:col-span-4">
+              <Button disabled={status === "loading"} type="submit">
                 <Search className="h-4 w-4" />
-                {status === "loading" ? "Loading..." : "Apply"}
+                {status === "loading" ? "Searching..." : "Search"}
               </Button>
-              <Button className="w-full lg:w-auto" disabled={status === "loading"} onClick={() => void loadOrders(pageNumber, emailFilter)} type="button" variant="outline">
+              <Button disabled={status === "loading"} onClick={() => void loadOrders(pageNumber, appliedFilters)} type="button" variant="outline">
                 <RefreshCw className="h-4 w-4" />
                 Refresh
+              </Button>
+              <Button disabled={status === "loading"} onClick={resetFilters} type="button" variant="outline">
+                Reset
               </Button>
             </div>
           </form>
@@ -474,7 +667,7 @@ export function OrderManager() {
               Orders
             </CardTitle>
             <p className="text-sm text-slate-500">
-              {totalElements} total{emailFilter ? ` for ${emailFilter}` : ""}
+              {totalElements} total
             </p>
           </div>
         </CardHeader>
@@ -504,11 +697,11 @@ export function OrderManager() {
               Page {totalPages === 0 ? 0 : pageNumber + 1} of {totalPages}
             </p>
             <div className="flex items-center gap-2">
-              <Button disabled={status === "loading" || pageNumber <= 0} onClick={() => void loadOrders(pageNumber - 1, emailFilter)} type="button" variant="outline">
+              <Button disabled={status === "loading" || pageNumber <= 0} onClick={() => void loadOrders(pageNumber - 1, appliedFilters)} type="button" variant="outline">
                 <ChevronLeft className="h-4 w-4" />
                 Previous
               </Button>
-              <Button disabled={status === "loading" || pageNumber + 1 >= totalPages} onClick={() => void loadOrders(pageNumber + 1, emailFilter)} type="button" variant="outline">
+              <Button disabled={status === "loading" || pageNumber + 1 >= totalPages} onClick={() => void loadOrders(pageNumber + 1, appliedFilters)} type="button" variant="outline">
                 Next
                 <ChevronRight className="h-4 w-4" />
               </Button>
@@ -976,6 +1169,27 @@ function getStoredLocationContext(searchParams?: URLSearchParams | ReadonlyURLSe
       sessionStorage.getItem("umika_location_code") ??
       localStorage.getItem("umika_location_code"),
   };
+}
+
+function normalizeInquiryFilters(filters: OrderInquiryFilters): OrderInquiryFilters {
+  const dateMode = filters.dateMode === "range" ? "range" : "exact";
+
+  return {
+    email: filters.email.trim(),
+    customerName: filters.customerName.trim(),
+    phone: filters.phone.trim(),
+    notes: filters.notes.trim(),
+    dateMode,
+    orderDate: dateMode === "exact" ? filters.orderDate.trim() : "",
+    orderDateFrom: dateMode === "range" ? filters.orderDateFrom.trim() : "",
+    orderDateTo: dateMode === "range" ? filters.orderDateTo.trim() : "",
+    locationId: filters.locationId.trim(),
+    status: filters.status.trim(),
+  };
+}
+
+function getLocationId(location: LocationDto) {
+  return location.id ?? location.locationId ?? "";
 }
 
 type ReadonlyURLSearchParamsLike = {
