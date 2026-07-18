@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, Bell, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Minus, Plus, Printer, RefreshCw, Search, Volume2 } from "lucide-react";
+import { AlertCircle, Bell, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Minus, Plus, Printer, RefreshCw, RotateCcw, Search, Volume2 } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { Badge } from "@/components/ui/badge";
@@ -15,8 +15,9 @@ import type { CheckoutOrderItemResponse, CheckoutResponse } from "@/lib/cart-typ
 import type { LocationDto } from "@/lib/location-types";
 import { cn } from "@/lib/utils";
 
-type OrderStatus = "PENDING" | "PAID" | "PREPARING" | "READY" | "COMPLETED" | "CANCELLED";
+type OrderStatus = "PENDING" | "PAID" | "PREPARING" | "READY" | "COMPLETED" | "CANCELLED" | "PARTIALLY_REFUNDED" | "REFUNDED";
 type DateMode = "exact" | "range";
+type StripeRefundReason = "REQUESTED_BY_CUSTOMER" | "DUPLICATE" | "FRAUDULENT";
 
 type OrderInquiryFilters = {
   email: string;
@@ -39,7 +40,29 @@ type SpringPage<T> = {
   size?: number;
 };
 
-const ORDER_STATUSES: OrderStatus[] = ["PENDING", "PAID", "PREPARING", "READY", "COMPLETED", "CANCELLED"];
+type OrderRefundDto = {
+  id?: string | null;
+  orderId?: string | null;
+  amount?: number | string | null;
+  reason?: string | null;
+  stripeReason?: string | null;
+  status?: string | null;
+  idempotencyKey?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  [key: string]: unknown;
+};
+
+type RefundPayload = {
+  amount?: number;
+  reason: string;
+  stripeReason: StripeRefundReason;
+  idempotencyKey: string;
+};
+
+const ORDER_STATUSES: OrderStatus[] = ["PENDING", "PAID", "PREPARING", "READY", "COMPLETED", "CANCELLED", "PARTIALLY_REFUNDED", "REFUNDED"];
+const MANUAL_ORDER_STATUSES: OrderStatus[] = ["PENDING", "PAID", "PREPARING", "READY", "COMPLETED", "CANCELLED"];
+const STRIPE_REFUND_REASONS: StripeRefundReason[] = ["REQUESTED_BY_CUSTOMER", "DUPLICATE", "FRAUDULENT"];
 const ORDER_NOTIFICATION_WS_URL = process.env.NEXT_PUBLIC_ORDER_NOTIFICATION_WS_URL?.trim();
 const ORDER_NOTIFICATION_WS_PREFIX = (process.env.NEXT_PUBLIC_ORDER_NOTIFICATION_WS_PREFIX ?? "/api/v1").replace(/\/$/, "");
 const emptyInquiryFilters: OrderInquiryFilters = {
@@ -62,6 +85,8 @@ const statusClasses: Record<string, string> = {
   READY: "border-primary/20 bg-primary/10 text-primary",
   COMPLETED: "border-slate-200 bg-slate-100 text-slate-700",
   CANCELLED: "border-destructive/30 bg-destructive/10 text-destructive",
+  PARTIALLY_REFUNDED: "border-violet-200 bg-violet-50 text-violet-800",
+  REFUNDED: "border-violet-200 bg-violet-100 text-violet-900",
 };
 
 export function OrderManager() {
@@ -82,6 +107,7 @@ export function OrderManager() {
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "unauthenticated" | "error">("idle");
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
+  const [refundingId, setRefundingId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected");
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [activeAlertOrderId, setActiveAlertOrderId] = useState<string | null>(null);
@@ -441,6 +467,53 @@ export function OrderManager() {
     setDialogError(null);
   }
 
+  async function refundOrder(order: CheckoutResponse, payload: RefundPayload) {
+    const orderId = getOrderId(order);
+
+    if (!orderId) {
+      return;
+    }
+
+    setRefundingId(orderId);
+    setMessage(null);
+    setError(null);
+    setDialogError(null);
+
+    const body: Record<string, unknown> = {
+      reason: payload.reason,
+      stripeReason: payload.stripeReason,
+      idempotencyKey: payload.idempotencyKey,
+    };
+
+    if (typeof payload.amount === "number" && Number.isFinite(payload.amount) && payload.amount > 0) {
+      body.amount = payload.amount;
+    }
+
+    const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/refunds`, {
+      method: "POST",
+      headers: {
+        ...getAuthHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    }).catch(() => null);
+
+    setRefundingId(null);
+
+    if (!response?.ok) {
+      const responseBody = response ? await response.json().catch(() => null) : null;
+      const message = getApiErrorMessage(responseBody, "Unable to refund this order.");
+      setError(message);
+      setDialogError(message);
+      throw new Error(message);
+    }
+
+    setMessage(`Refund submitted for order ${order.orderNumber ?? orderId}.`);
+    setDialogError(null);
+    await loadOrders(pageNumber, appliedFilters);
+  }
+
 
   function upsertOrder(order: CheckoutResponse) {
     const orderId = getOrderId(order);
@@ -713,6 +786,7 @@ export function OrderManager() {
         acceptingId={acceptingId}
         error={dialogError}
         order={detailOrder}
+        refundingId={refundingId}
         updatingStatusId={updatingStatusId}
         onAccept={(order, requestedPickupTime) => void acceptOrder(order, requestedPickupTime)}
         onOpenChange={(open) => {
@@ -721,6 +795,7 @@ export function OrderManager() {
             setDialogError(null);
           }
         }}
+        onRefund={(order, payload) => refundOrder(order, payload)}
         onUpdateStatus={(order, nextStatus, note) => void updateOrderStatus(order, nextStatus, note)}
       />
     </div>
@@ -743,17 +818,21 @@ function ManagerOrderDetailsDialog({
   acceptingId,
   error,
   order,
+  refundingId,
   updatingStatusId,
   onAccept,
   onOpenChange,
+  onRefund,
   onUpdateStatus,
 }: {
   acceptingId: string | null;
   error: string | null;
   order: CheckoutResponse | null;
+  refundingId: string | null;
   updatingStatusId: string | null;
   onAccept: (order: CheckoutResponse, requestedPickupTime?: string) => void;
   onOpenChange: (open: boolean) => void;
+  onRefund: (order: CheckoutResponse, payload: RefundPayload) => Promise<void>;
   onUpdateStatus: (order: CheckoutResponse, nextStatus: OrderStatus, note?: string) => void;
 }) {
   const items = order?.items ?? [];
@@ -761,13 +840,126 @@ function ManagerOrderDetailsDialog({
   const [pickupTime, setPickupTime] = useState("");
   const [statusDraft, setStatusDraft] = useState<OrderStatus>("PENDING");
   const [statusNote, setStatusNote] = useState("");
+  const [refundAmount, setRefundAmount] = useState("");
+  const [refundReason, setRefundReason] = useState("");
+  const [stripeReason, setStripeReason] = useState<StripeRefundReason>("REQUESTED_BY_CUSTOMER");
+  const [idempotencyKey, setIdempotencyKey] = useState("");
+  const [refunds, setRefunds] = useState<OrderRefundDto[]>([]);
+  const [refundStatus, setRefundStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [refundError, setRefundError] = useState<string | null>(null);
   const isWaitingForAcceptance = (order?.status ?? "").toUpperCase() === "PAID";
+  const canRefund = Boolean(orderId) && !["PENDING", "CANCELLED", "REFUNDED"].includes((order?.status ?? "").toUpperCase());
 
   useEffect(() => {
     setPickupTime(toPickupTimeValue(order?.requestedPickupTime));
     setStatusDraft(normalizeOrderStatus(order?.status));
     setStatusNote("");
+    setRefundAmount("");
+    setRefundReason("");
+    setStripeReason("REQUESTED_BY_CUSTOMER");
+    setIdempotencyKey(orderId ? buildRefundIdempotencyKey(orderId) : "");
   }, [order?.requestedPickupTime, order?.status, orderId]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadRefunds() {
+      if (!orderId) {
+        setRefunds([]);
+        setRefundStatus("idle");
+        setRefundError(null);
+        return;
+      }
+
+      setRefundStatus("loading");
+      setRefundError(null);
+
+      const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/refunds`, {
+        method: "GET",
+        headers: getAuthHeaders(),
+        cache: "no-store",
+      }).catch(() => null);
+
+      if (!active) {
+        return;
+      }
+
+      if (!response?.ok) {
+        const body = response ? await response.json().catch(() => null) : null;
+        setRefunds([]);
+        setRefundStatus("error");
+        setRefundError(getApiErrorMessage(body, "Unable to load refund history."));
+        return;
+      }
+
+      const body = (await response.json().catch(() => null)) as SpringPage<OrderRefundDto> | OrderRefundDto[] | null;
+      setRefunds(Array.isArray(body) ? body : body?.content ?? []);
+      setRefundStatus("ready");
+    }
+
+    void loadRefunds();
+
+    return () => {
+      active = false;
+    };
+  }, [orderId]);
+
+  async function submitRefund(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!order) {
+      return;
+    }
+
+    const amountText = refundAmount.trim();
+    const amount = amountText ? Number(amountText) : undefined;
+
+    if (amountText && (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0)) {
+      setRefundError("Refund amount must be greater than 0, or leave it empty for the remaining balance.");
+      return;
+    }
+
+    const reason = refundReason.trim();
+    const key = idempotencyKey.trim();
+
+    if (!reason) {
+      setRefundError("Refund reason is required.");
+      return;
+    }
+
+    if (!key) {
+      setRefundError("Idempotency key is required.");
+      return;
+    }
+
+    setRefundError(null);
+
+    try {
+      await onRefund(order, {
+        amount,
+        reason,
+        stripeReason,
+        idempotencyKey: key,
+      });
+      setRefundAmount("");
+      setRefundReason("");
+      setIdempotencyKey(buildRefundIdempotencyKey(orderId));
+
+      const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/refunds`, {
+        method: "GET",
+        headers: getAuthHeaders(),
+        cache: "no-store",
+      }).catch(() => null);
+
+      if (response?.ok) {
+        const body = (await response.json().catch(() => null)) as SpringPage<OrderRefundDto> | OrderRefundDto[] | null;
+        setRefunds(Array.isArray(body) ? body : body?.content ?? []);
+        setRefundStatus("ready");
+      }
+    } catch (submitError) {
+      setRefundError(getErrorText(submitError) ?? "Unable to refund this order.");
+    }
+  }
 
   return (
     <Dialog open={Boolean(order)} onOpenChange={onOpenChange}>
@@ -830,6 +1022,103 @@ function ManagerOrderDetailsDialog({
                 <SummaryTile label="Points" value={`${order.pointsRedeemed ?? 0} redeemed / ${order.pointsEarned ?? 0} earned`} />
               </div>
 
+              <div className="rounded-md border border-slate-200 p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+                      <RotateCcw className="h-4 w-4 text-primary" />
+                      Refund
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">Leave amount empty to refund the full remaining Stripe balance.</p>
+                  </div>
+                  <Badge className="w-fit rounded-md border-slate-200 bg-slate-100 text-slate-700">
+                    {refunds.length} refund{refunds.length === 1 ? "" : "s"}
+                  </Badge>
+                </div>
+
+                {refundError ? (
+                  <div className="mt-3 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <p>{refundError}</p>
+                  </div>
+                ) : null}
+
+                <form className="mt-3 grid gap-3 lg:grid-cols-[140px_1fr_220px] lg:items-end" onSubmit={(event) => void submitRefund(event)}>
+                  <label className="block">
+                    <span className="text-sm font-semibold text-slate-700">Amount</span>
+                    <input
+                      className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                      min="0.01"
+                      onChange={(event) => setRefundAmount(event.target.value)}
+                      placeholder="Full"
+                      step="0.01"
+                      type="number"
+                      value={refundAmount}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-semibold text-slate-700">Reason</span>
+                    <input
+                      className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                      onChange={(event) => setRefundReason(event.target.value)}
+                      placeholder="Customer requested refund"
+                      value={refundReason}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-semibold text-slate-700">Stripe reason</span>
+                    <select
+                      className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                      onChange={(event) => setStripeReason(event.target.value as StripeRefundReason)}
+                      value={stripeReason}
+                    >
+                      {STRIPE_REFUND_REASONS.map((reason) => (
+                        <option key={reason} value={reason}>
+                          {formatRefundReason(reason)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block lg:col-span-2">
+                    <span className="text-sm font-semibold text-slate-700">Idempotency key</span>
+                    <input
+                      className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                      onChange={(event) => setIdempotencyKey(event.target.value)}
+                      value={idempotencyKey}
+                    />
+                  </label>
+                  <Button disabled={!canRefund || refundingId === orderId} type="submit">
+                    <RotateCcw className="h-4 w-4" />
+                    {refundingId === orderId ? "Refunding..." : canRefund ? "Submit refund" : "Refund unavailable"}
+                  </Button>
+                </form>
+
+                <div className="mt-4 rounded-md border border-slate-200">
+                  <div className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">Refund history</div>
+                  {refundStatus === "loading" ? (
+                    <div className="p-3 text-sm text-slate-500">Loading refunds...</div>
+                  ) : refunds.length === 0 ? (
+                    <div className="p-3 text-sm text-slate-500">No refunds yet.</div>
+                  ) : (
+                    <div className="divide-y divide-slate-200">
+                      {refunds.map((refund, index) => (
+                        <div className="grid gap-2 p-3 text-sm sm:grid-cols-[120px_1fr_160px] sm:items-center" key={refund.id ?? refund.idempotencyKey ?? index}>
+                          <p className="font-semibold text-slate-950">{formatMoney(refund.amount)}</p>
+                          <div className="min-w-0">
+                            <p className="truncate text-slate-700">{refund.reason || formatRefundReason(refund.stripeReason)}</p>
+                            <p className="truncate text-xs text-slate-500">{refund.idempotencyKey ?? refund.id ?? "No idempotency key"}</p>
+                          </div>
+                          <div className="sm:text-right">
+                            <Badge className="rounded-md border-violet-200 bg-violet-50 text-violet-800">{refund.status ?? "Refunded"}</Badge>
+                            <p className="mt-1 text-xs text-slate-500">{formatDateTime(refund.createdAt)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {order.orderType === "PICKUP" && isWaitingForAcceptance ? (
                 <div className="rounded-md border border-slate-200 p-4">
                   <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
@@ -878,7 +1167,10 @@ function ManagerOrderDetailsDialog({
                       onChange={(event) => setStatusDraft(event.target.value as OrderStatus)}
                       value={statusDraft}
                     >
-                      {ORDER_STATUSES.map((item) => (
+                      {!MANUAL_ORDER_STATUSES.includes(statusDraft) ? (
+                        <option value={statusDraft}>{formatStatus(statusDraft)}</option>
+                      ) : null}
+                      {MANUAL_ORDER_STATUSES.map((item) => (
                         <option key={item} value={item}>
                           {formatStatus(item)}
                         </option>
@@ -1277,9 +1569,25 @@ function formatStatus(value: string) {
   return value.replaceAll("_", " ");
 }
 
+function formatRefundReason(value: string | null | undefined) {
+  return value ? value.replaceAll("_", " ") : "Requested by customer";
+}
+
 function normalizeOrderStatus(value: string | null | undefined): OrderStatus {
   const normalizedValue = (value ?? "").toUpperCase();
   return ORDER_STATUSES.includes(normalizedValue as OrderStatus) ? normalizedValue as OrderStatus : "PENDING";
+}
+
+function buildRefundIdempotencyKey(orderId: string) {
+  const randomValue = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  return `refund-${orderId}-${randomValue}`;
+}
+
+function getErrorText(error: unknown) {
+  return error instanceof Error && error.message.trim() ? error.message : null;
 }
 
 function formatOrderType(value: string | null | undefined) {
