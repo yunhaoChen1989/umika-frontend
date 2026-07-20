@@ -30,7 +30,7 @@ export function SiteFooter({ locale, showLocationInfo = false }: { locale: Local
             <FooterLocation locale={locale} section="contact" />
           ) : (
             <>
-              <p className="mt-3 text-background/72">Toronto, Ontario</p>
+              <p className="mt-3 text-background/72">{dict.common.cityFallback}</p>
               <p className="text-background/72">umikasushi.ca</p>
             </>
           )}

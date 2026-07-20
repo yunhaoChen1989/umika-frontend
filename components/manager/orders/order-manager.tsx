@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, Bell, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Minus, Plus, Printer, RefreshCw, RotateCcw, Search, Volume2 } from "lucide-react";
+import { AlertCircle, Bell, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Minus, Plus, Printer, RefreshCw, RotateCcw, Search, Volume2 } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { Badge } from "@/components/ui/badge";
@@ -843,10 +843,10 @@ function ManagerOrderDetailsDialog({
   const [refundAmount, setRefundAmount] = useState("");
   const [refundReason, setRefundReason] = useState("");
   const [stripeReason, setStripeReason] = useState<StripeRefundReason>("REQUESTED_BY_CUSTOMER");
-  const [idempotencyKey, setIdempotencyKey] = useState("");
   const [refunds, setRefunds] = useState<OrderRefundDto[]>([]);
   const [refundStatus, setRefundStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [refundError, setRefundError] = useState<string | null>(null);
+  const [isRefundSectionOpen, setIsRefundSectionOpen] = useState(false);
   const isWaitingForAcceptance = (order?.status ?? "").toUpperCase() === "PAID";
   const canRefund = Boolean(orderId) && !["PENDING", "CANCELLED", "REFUNDED"].includes((order?.status ?? "").toUpperCase());
 
@@ -857,7 +857,7 @@ function ManagerOrderDetailsDialog({
     setRefundAmount("");
     setRefundReason("");
     setStripeReason("REQUESTED_BY_CUSTOMER");
-    setIdempotencyKey(orderId ? buildRefundIdempotencyKey(orderId) : "");
+    setIsRefundSectionOpen(false);
   }, [order?.requestedPickupTime, order?.status, orderId]);
 
   useEffect(() => {
@@ -920,15 +920,9 @@ function ManagerOrderDetailsDialog({
     }
 
     const reason = refundReason.trim();
-    const key = idempotencyKey.trim();
 
     if (!reason) {
       setRefundError("Refund reason is required.");
-      return;
-    }
-
-    if (!key) {
-      setRefundError("Idempotency key is required.");
       return;
     }
 
@@ -939,11 +933,10 @@ function ManagerOrderDetailsDialog({
         amount,
         reason,
         stripeReason,
-        idempotencyKey: key,
+        idempotencyKey: buildRefundIdempotencyKey(orderId),
       });
       setRefundAmount("");
       setRefundReason("");
-      setIdempotencyKey(buildRefundIdempotencyKey(orderId));
 
       const response = await fetch(`/api/orders/${encodeURIComponent(orderId)}/refunds`, {
         method: "GET",
@@ -1022,103 +1015,6 @@ function ManagerOrderDetailsDialog({
                 <SummaryTile label="Points" value={`${order.pointsRedeemed ?? 0} redeemed / ${order.pointsEarned ?? 0} earned`} />
               </div>
 
-              <div className="rounded-md border border-slate-200 p-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-                      <RotateCcw className="h-4 w-4 text-primary" />
-                      Refund
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">Leave amount empty to refund the full remaining Stripe balance.</p>
-                  </div>
-                  <Badge className="w-fit rounded-md border-slate-200 bg-slate-100 text-slate-700">
-                    {refunds.length} refund{refunds.length === 1 ? "" : "s"}
-                  </Badge>
-                </div>
-
-                {refundError ? (
-                  <div className="mt-3 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                    <p>{refundError}</p>
-                  </div>
-                ) : null}
-
-                <form className="mt-3 grid gap-3 lg:grid-cols-[140px_1fr_220px] lg:items-end" onSubmit={(event) => void submitRefund(event)}>
-                  <label className="block">
-                    <span className="text-sm font-semibold text-slate-700">Amount</span>
-                    <input
-                      className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                      min="0.01"
-                      onChange={(event) => setRefundAmount(event.target.value)}
-                      placeholder="Full"
-                      step="0.01"
-                      type="number"
-                      value={refundAmount}
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-sm font-semibold text-slate-700">Reason</span>
-                    <input
-                      className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                      onChange={(event) => setRefundReason(event.target.value)}
-                      placeholder="Customer requested refund"
-                      value={refundReason}
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-sm font-semibold text-slate-700">Stripe reason</span>
-                    <select
-                      className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                      onChange={(event) => setStripeReason(event.target.value as StripeRefundReason)}
-                      value={stripeReason}
-                    >
-                      {STRIPE_REFUND_REASONS.map((reason) => (
-                        <option key={reason} value={reason}>
-                          {formatRefundReason(reason)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block lg:col-span-2">
-                    <span className="text-sm font-semibold text-slate-700">Idempotency key</span>
-                    <input
-                      className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-                      onChange={(event) => setIdempotencyKey(event.target.value)}
-                      value={idempotencyKey}
-                    />
-                  </label>
-                  <Button disabled={!canRefund || refundingId === orderId} type="submit">
-                    <RotateCcw className="h-4 w-4" />
-                    {refundingId === orderId ? "Refunding..." : canRefund ? "Submit refund" : "Refund unavailable"}
-                  </Button>
-                </form>
-
-                <div className="mt-4 rounded-md border border-slate-200">
-                  <div className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">Refund history</div>
-                  {refundStatus === "loading" ? (
-                    <div className="p-3 text-sm text-slate-500">Loading refunds...</div>
-                  ) : refunds.length === 0 ? (
-                    <div className="p-3 text-sm text-slate-500">No refunds yet.</div>
-                  ) : (
-                    <div className="divide-y divide-slate-200">
-                      {refunds.map((refund, index) => (
-                        <div className="grid gap-2 p-3 text-sm sm:grid-cols-[120px_1fr_160px] sm:items-center" key={refund.id ?? refund.idempotencyKey ?? index}>
-                          <p className="font-semibold text-slate-950">{formatMoney(refund.amount)}</p>
-                          <div className="min-w-0">
-                            <p className="truncate text-slate-700">{refund.reason || formatRefundReason(refund.stripeReason)}</p>
-                            <p className="truncate text-xs text-slate-500">{refund.idempotencyKey ?? refund.id ?? "No idempotency key"}</p>
-                          </div>
-                          <div className="sm:text-right">
-                            <Badge className="rounded-md border-violet-200 bg-violet-50 text-violet-800">{refund.status ?? "Refunded"}</Badge>
-                            <p className="mt-1 text-xs text-slate-500">{formatDateTime(refund.createdAt)}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
               {order.orderType === "PICKUP" && isWaitingForAcceptance ? (
                 <div className="rounded-md border border-slate-200 p-4">
                   <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
@@ -1190,6 +1086,118 @@ function ManagerOrderDetailsDialog({
                     {updatingStatusId === orderId ? "Updating..." : "Update status"}
                   </Button>
                 </div>
+              </div>
+
+              <div className="rounded-md border border-slate-200 p-4">
+                <button
+                  aria-expanded={isRefundSectionOpen}
+                  className="flex w-full flex-col gap-2 text-left sm:flex-row sm:items-center sm:justify-between"
+                  onClick={() => setIsRefundSectionOpen((current) => !current)}
+                  type="button"
+                >
+                  <span>
+                    <span className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+                      <RotateCcw className="h-4 w-4 text-primary" />
+                      Refund
+                    </span>
+                    <span className="mt-1 block text-xs text-slate-500">
+                      {isRefundSectionOpen ? "Hide refund tools and history." : "Expand to refund or view refund history."}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <Badge className="w-fit rounded-md border-slate-200 bg-slate-100 text-slate-700">
+                      {refundStatus === "loading" ? "Loading" : `${refunds.length} refund${refunds.length === 1 ? "" : "s"}`}
+                    </Badge>
+                    {isRefundSectionOpen ? <ChevronDown className="h-4 w-4 text-slate-500" /> : <ChevronRight className="h-4 w-4 text-slate-500" />}
+                  </span>
+                </button>
+
+                {isRefundSectionOpen ? (
+                  <>
+                    <p className="mt-3 text-xs text-slate-500">Leave amount empty to refund the full remaining Stripe balance.</p>
+
+                    {refundError ? (
+                      <div className="mt-3 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <p>{refundError}</p>
+                      </div>
+                    ) : null}
+
+                    <form className="mt-3 grid gap-3 lg:grid-cols-[140px_1fr_220px] lg:items-end" onSubmit={(event) => void submitRefund(event)}>
+                      <label className="block">
+                        <span className="text-sm font-semibold text-slate-700">Amount</span>
+                        <input
+                          className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                          min="0.01"
+                          onChange={(event) => setRefundAmount(event.target.value)}
+                          placeholder="Full"
+                          step="0.01"
+                          type="number"
+                          value={refundAmount}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-sm font-semibold text-slate-700">Reason</span>
+                        <input
+                          className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                          onChange={(event) => setRefundReason(event.target.value)}
+                          placeholder="Customer requested refund"
+                          value={refundReason}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-sm font-semibold text-slate-700">Stripe reason</span>
+                        <select
+                          className="mt-2 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                          onChange={(event) => setStripeReason(event.target.value as StripeRefundReason)}
+                          value={stripeReason}
+                        >
+                          {STRIPE_REFUND_REASONS.map((reason) => (
+                            <option key={reason} value={reason}>
+                              {formatRefundReason(reason)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="flex justify-end lg:col-span-3">
+                        <Button
+                          className="w-full border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto"
+                          disabled={!canRefund || refundingId === orderId}
+                          type="submit"
+                          variant="outline"
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                          {refundingId === orderId ? "Refunding..." : canRefund ? "Refund order" : "Refund unavailable"}
+                        </Button>
+                      </div>
+                    </form>
+
+                    <div className="mt-4 rounded-md border border-slate-200">
+                      <div className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500">Refund history</div>
+                      {refundStatus === "loading" ? (
+                        <div className="p-3 text-sm text-slate-500">Loading refunds...</div>
+                      ) : refunds.length === 0 ? (
+                        <div className="p-3 text-sm text-slate-500">No refunds yet.</div>
+                      ) : (
+                        <div className="divide-y divide-slate-200">
+                          {refunds.map((refund, index) => (
+                            <div className="grid gap-2 p-3 text-sm sm:grid-cols-[120px_1fr_160px] sm:items-center" key={refund.id ?? refund.idempotencyKey ?? index}>
+                              <p className="font-semibold text-slate-950">{formatMoney(refund.amount)}</p>
+                              <div className="min-w-0">
+                                <p className="truncate text-slate-700">{refund.reason || formatRefundReason(refund.stripeReason)}</p>
+                                <p className="truncate text-xs text-slate-500">{refund.id ?? "Refund record"}</p>
+                              </div>
+                              <div className="sm:text-right">
+                                <Badge className="rounded-md border-violet-200 bg-violet-50 text-violet-800">{refund.status ?? "Refunded"}</Badge>
+                                <p className="mt-1 text-xs text-slate-500">{formatDateTime(refund.createdAt)}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : null}
               </div>
 
             </div>

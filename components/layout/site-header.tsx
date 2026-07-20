@@ -323,7 +323,7 @@ export function SiteHeader({ locale }: { locale: Locale }) {
   return (
     <header className="sticky top-0 z-50 border-b bg-background/92 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-2 px-3 sm:gap-3 sm:px-6 lg:px-8">
-        <Link href="/" className="flex min-w-0 items-center gap-3" aria-label="Umika Sushi home">
+        <Link href="/" className="flex min-w-0 items-center gap-3" aria-label={dict.common.homeLabel}>
           <span className="grid h-9 w-9 place-items-center rounded-md bg-primary font-serif text-lg font-bold text-primary-foreground">
             U
           </span>
@@ -342,13 +342,13 @@ export function SiteHeader({ locale }: { locale: Locale }) {
           <label className="flex min-w-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-1 text-sm text-slate-950 shadow-sm sm:gap-1.5 sm:px-2">
             <MapPin className="hidden h-4 w-4 shrink-0 text-primary min-[360px]:block" />
             <select
-              aria-label="Browse location"
+              aria-label={dict.common.browseLocation}
               className="h-8 min-w-0 max-w-20 bg-white text-sm font-bold text-slate-950 outline-none min-[360px]:max-w-28 sm:max-w-36 md:max-w-48"
               disabled={locationOptions.length === 0}
               value={selectedLocationValue}
               onChange={(event) => changeLocation(event.target.value)}
             >
-              {selectedLocationValue ? null : <option value="">Location</option>}
+              {selectedLocationValue ? null : <option value="">{dict.common.location}</option>}
               {locationOptions.map((option) => {
                 const id = option.id ?? option.locationId;
                 const value = option.locationCode ? `code:${option.locationCode}` : id ? `id:${id}` : "";
@@ -366,7 +366,7 @@ export function SiteHeader({ locale }: { locale: Locale }) {
             </select>
           </label>
           <LanguageSwitcher locale={locale} label={dict.common.language} />
-          <Button asChild variant="outline" size="icon" aria-label="Account" className="hidden min-[360px]:inline-flex">
+          <Button asChild variant="outline" size="icon" aria-label={dict.common.accountLabel} className="hidden min-[360px]:inline-flex">
             <Link href="/account">
               <UserRound className="h-4 w-4" />
             </Link>
@@ -375,7 +375,7 @@ export function SiteHeader({ locale }: { locale: Locale }) {
             <Link
               href="/account"
               className="hidden max-w-28 truncate text-sm font-semibold text-foreground hover:text-primary lg:block"
-              aria-label="Account"
+              aria-label={dict.common.accountLabel}
               title={accountName}
             >
               {accountName}

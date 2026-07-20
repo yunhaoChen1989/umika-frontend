@@ -12,7 +12,7 @@ export function Hero({ locale }: { locale: Locale }) {
     <section className="relative min-h-[calc(100svh-4rem)] overflow-hidden" aria-labelledby="home-hero-title">
       <Image
         src="/images/umika-hero.png"
-        alt="Fresh sushi and sashimi spread at Umika Sushi"
+        alt={dict.home.heroImageAlt}
         fill
         priority
         sizes="100vw"
