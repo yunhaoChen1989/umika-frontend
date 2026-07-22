@@ -4,7 +4,7 @@ import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { FooterLocation } from "@/components/layout/footer-location";
 import { getDictionary, type Locale } from "@/lib/i18n";
 
-export function SiteFooter({ locale, showLocationInfo = false }: { locale: Locale; showLocationInfo?: boolean }) {
+export function SiteFooter({ locale }: { locale: Locale }) {
   const dict = getDictionary(locale);
 
   return (
@@ -26,17 +26,10 @@ export function SiteFooter({ locale, showLocationInfo = false }: { locale: Local
         </div>
         <div className="text-sm">
           <p className="font-semibold">{dict.common.visit}</p>
-          {showLocationInfo ? (
-            <FooterLocation locale={locale} section="contact" />
-          ) : (
-            <>
-              <p className="mt-3 text-background/72">{dict.common.cityFallback}</p>
-              <p className="text-background/72">umikasushi.ca</p>
-            </>
-          )}
+          <FooterLocation locale={locale} section="contact" />
         </div>
         <div className="text-sm">
-          {showLocationInfo ? <FooterLocation locale={locale} section="hours" /> : null}
+          <FooterLocation locale={locale} section="hours" />
         </div>
       </div>
     </footer>

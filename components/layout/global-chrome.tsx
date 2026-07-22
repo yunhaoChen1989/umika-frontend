@@ -11,7 +11,6 @@ import type { Locale } from "@/lib/i18n";
 export function GlobalChrome({ children, locale }: { children: React.ReactNode; locale: Locale }) {
   const pathname = usePathname();
   const isManagerRoute = pathname.startsWith("/manager");
-  const isHomeRoute = pathname === "/";
 
   if (isManagerRoute) {
     return (
@@ -28,7 +27,7 @@ export function GlobalChrome({ children, locale }: { children: React.ReactNode; 
       <LocationCodeKeeper />
       <SiteHeader locale={locale} />
       <main>{children}</main>
-      <SiteFooter locale={locale} showLocationInfo={isHomeRoute} />
+      <SiteFooter locale={locale} />
       <ProfileCompletionDialog locale={locale} />
     </>
   );
