@@ -44,6 +44,12 @@ type SettingDraft = {
 };
 
 const STORE_CHANGE_ROLES = new Set(["ROLE_ADMIN", "ADMIN"]);
+const PICKUP_TIME_KEYS = new Set([
+  "PICKUP_TIME_UNDER_50_MINUTES",
+  "PICKUP_TIME_50_TO_80_MINUTES",
+  "PICKUP_TIME_80_TO_100_MINUTES",
+  "PICKUP_TIME_OVER_100_MINUTES",
+]);
 const NUMBER_KEYS = new Set([
   "DEFAULT_TAX_RATE",
   "ORDER_DISCOUNT_PERCENT",
@@ -247,6 +253,10 @@ export function LocationSettingManager() {
     const draft = drafts[setting.settingKey];
     const settingValue = (draft?.value ?? "").trim();
 
+    if (getSettingValidationError(setting, settingValue)) {
+      return;
+    }
+
     setSavingKey(setting.settingKey);
     setMessage(null);
     setError(null);
@@ -431,6 +441,7 @@ export function LocationSettingManager() {
                       const draft = drafts[setting.settingKey];
                       const value = draft?.value ?? setting.effectiveValue ?? "";
                       const hasChanges = value.trim() !== (draft?.originalValue ?? setting.effectiveValue ?? "").trim();
+                      const validationError = getSettingValidationError(setting, value);
 
                       return (
                         <div className="grid gap-4 px-4 py-4 xl:grid-cols-[260px_1fr_220px_190px]" key={setting.settingKey}>
@@ -462,7 +473,7 @@ export function LocationSettingManager() {
                           </div>
                           <div className="flex flex-col gap-2">
                             <Button
-                              disabled={!hasChanges || savingKey === setting.settingKey || resettingKey === setting.settingKey}
+                              disabled={!hasChanges || Boolean(validationError) || savingKey === setting.settingKey || resettingKey === setting.settingKey}
                               onClick={() => void saveSetting(setting)}
                               size="sm"
                               type="button"
@@ -538,19 +549,37 @@ function SettingInput({
     );
   }
 
-  const isNumber = NUMBER_KEYS.has(setting.settingKey);
+  const valueType = setting.valueType?.trim().toLowerCase();
+  const isInteger = valueType === "integer" || PICKUP_TIME_KEYS.has(setting.settingKey);
+  const isNumber = isInteger || valueType === "decimal" || valueType === "number" || NUMBER_KEYS.has(setting.settingKey);
+  const validationError = getSettingValidationError(setting, value);
+  const errorId = `setting-${setting.settingKey}-error`;
 
   return (
+    <div>
     <input
+      aria-label={getSettingLabel(setting)}
+      aria-invalid={Boolean(validationError)}
+      aria-describedby={validationError ? errorId : undefined}
       className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:bg-slate-100"
       disabled={disabled}
-      inputMode={isNumber ? "decimal" : "text"}
+      inputMode={isInteger ? "numeric" : isNumber ? "decimal" : "text"}
+      min={PICKUP_TIME_KEYS.has(setting.settingKey) ? 1 : undefined}
       onChange={(event) => onChange(event.target.value)}
-      step={isNumber ? "0.01" : undefined}
+      step={isInteger ? "1" : isNumber ? "0.01" : undefined}
       type={isNumber ? "number" : "text"}
       value={value}
     />
+    {validationError ? <p className="mt-1 text-xs text-destructive" id={errorId} role="alert">{validationError}</p> : null}
+    </div>
   );
+}
+
+function getSettingValidationError(setting: BusinessSetting, value: string) {
+  if (PICKUP_TIME_KEYS.has(setting.settingKey) && (!/^\d+$/.test(value.trim()) || !Number.isSafeInteger(Number(value)) || Number(value) < 1)) {
+    return "Enter a positive whole number of minutes.";
+  }
+  return null;
 }
 
 function isBooleanSetting(setting: BusinessSetting) {
