@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, Bell, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Minus, Plus, Printer, RefreshCw, RotateCcw, Search, Volume2 } from "lucide-react";
+import { AlertCircle, Bell, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Minus, Plus, RefreshCw, RotateCcw, Search, Volume2 } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
+import { PrintOrderButton } from "@/components/manager/printers/print-order-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1208,20 +1209,6 @@ function ManagerOrderDetailsDialog({
   );
 }
 
-function PrintOrderButton({ order }: { order: CheckoutResponse }) {
-  return (
-    <Button
-      aria-label={`Print order ${order.orderNumber ?? getOrderId(order) ?? ""}`}
-      onClick={() => undefined}
-      size="icon"
-      title="Print order"
-      type="button"
-      variant="outline"
-    >
-      <Printer className="h-4 w-4" />
-    </Button>
-  );
-}
 
 function OrderItemRow({ item }: { item: CheckoutOrderItemResponse }) {
   const optionSnapshot = getOrderItemOptionSnapshot(item);

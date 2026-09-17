@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { getAuthHeaders } from "@/lib/cart-client";
 import { formatCartOptions } from "@/lib/cart-options";
 import type { CheckoutOrderItemResponse, CheckoutResponse } from "@/lib/cart-types";
 import type { Dictionary } from "@/lib/i18n";
@@ -52,6 +53,29 @@ export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCop
   const [orders, setOrders] = useState<CheckoutResponse[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "unauthenticated" | "error">("loading");
   const [selectedOrder, setSelectedOrder] = useState<CheckoutResponse | null>(null);
+  const [authRefreshKey, setAuthRefreshKey] = useState(0);
+
+  useEffect(() => {
+    function refreshHistory() {
+      setAuthRefreshKey((current) => current + 1);
+    }
+
+    function refreshHistoryFromStorage(event: StorageEvent) {
+      if (event.key === "umika_access_token") {
+        refreshHistory();
+      }
+    }
+
+    window.addEventListener("umika-auth-changed", refreshHistory);
+    window.addEventListener("focus", refreshHistory);
+    window.addEventListener("storage", refreshHistoryFromStorage);
+
+    return () => {
+      window.removeEventListener("umika-auth-changed", refreshHistory);
+      window.removeEventListener("focus", refreshHistory);
+      window.removeEventListener("storage", refreshHistoryFromStorage);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -89,9 +113,7 @@ export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCop
       }
 
       const response = await fetch(url.toString(), {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: getAuthHeaders(),
         cache: "no-store",
       }).catch(() => null);
 
@@ -100,7 +122,22 @@ export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCop
       }
 
       if (!response?.ok) {
-        setStatus(response?.status === 401 || response?.status === 403 ? "unauthenticated" : "error");
+        if (response?.status === 401 || response?.status === 403) {
+          const profileResponse = await fetch("/api/me/profile", {
+            method: "GET",
+            headers: getAuthHeaders(),
+            cache: "no-store",
+          }).catch(() => null);
+
+          if (!active) {
+            return;
+          }
+
+          setStatus(profileResponse?.ok ? "error" : "unauthenticated");
+          return;
+        }
+
+        setStatus("error");
         return;
       }
 
@@ -114,7 +151,7 @@ export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCop
     return () => {
       active = false;
     };
-  }, [searchParams]);
+  }, [authRefreshKey, searchParams]);
 
   return (
     <section className="mt-8">
