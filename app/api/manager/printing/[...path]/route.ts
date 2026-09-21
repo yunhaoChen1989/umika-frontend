@@ -4,7 +4,7 @@ import { backendBaseUrl, getAuthHeaders, proxyJsonResponse } from "@/lib/backend
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const { path } = await context.params;
   const joined = path.join("/");
-  if (!/^[0-9a-f-]{36}(?:\/pair|\/routing|\/orders\/[0-9a-f-]{36}\/reprint|\/jobs(?:\/[0-9a-f-]{36}\/reprint)?)?$/i.test(joined)) {
+  if (!/^[0-9a-f-]{36}(?:\/pair|\/routing|\/receipt-template|\/orders\/[0-9a-f-]{36}\/reprint|\/jobs(?:\/[0-9a-f-]{36}\/reprint)?)?$/i.test(joined)) {
     return NextResponse.json({ message: "Not found" }, { status: 404 });
   }
   const headers = getAuthHeaders(request);

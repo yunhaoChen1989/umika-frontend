@@ -1,5 +1,7 @@
 import type { NextRequest } from "next/server";
 
+export const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 400;
+
 export type BackendAuthResponse = {
   accessToken?: string;
   tokenType?: string;

@@ -29,7 +29,7 @@ const ko: Copy = {
 };
 export const printerTranslations: Record<Locale, Copy> = { en, zh, ko };
 export const printerAgentTranslations = {
-  en: { description: "Assign menu items to printers and monitor delivery.", setupTitle: "Connect the restaurant agent", setupHelp: "Create printer names and routing below. On the local agent page, select those names and enter their IP addresses. Generate a store key here and paste it into the agent." },
-  zh: { description: "分配菜品打印机并监控打印投递。", setupTitle: "连接餐厅代理", setupHelp: "在下方创建打印机名称和菜品分配。在本地代理页面选择对应名称并填写 IP 地址。在此生成门店密钥并粘贴到代理中。" },
-  ko: { description: "메뉴별 프린터를 배정하고 전송을 확인합니다.", setupTitle: "매장 에이전트 연결", setupHelp: "아래에서 프린터 이름과 메뉴 배정을 설정하세요. 로컬 에이전트에서 해당 이름을 선택하고 IP 주소를 입력하세요. 매장 키를 생성하여 에이전트에 붙여 넣으세요." },
+  en: { description: "Assign menu items to printers and monitor delivery.", setupTitle: "Connect the restaurant agent", setupHelp: "Create printer names and routing below. On the local agent page, select those names and enter their IP addresses. Generate a store key here and paste it into the agent.", receiptTemplate: "Edit receipt template" },
+  zh: { description: "分配菜品打印机并监控打印投递。", setupTitle: "连接餐厅代理", setupHelp: "在下方创建打印机名称和菜品分配。在本地代理页面选择对应名称并填写 IP 地址。在此生成门店密钥并粘贴到代理中。", receiptTemplate: "编辑小票模板" },
+  ko: { description: "메뉴별 프린터를 배정하고 전송을 확인합니다.", setupTitle: "매장 에이전트 연결", setupHelp: "아래에서 프린터 이름과 메뉴 배정을 설정하세요. 로컬 에이전트에서 해당 이름을 선택하고 IP 주소를 입력하세요. 매장 키를 생성하여 에이전트에 붙여 넣으세요.", receiptTemplate: "영수증 템플릿 편집" },
 };

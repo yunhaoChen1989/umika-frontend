@@ -190,7 +190,7 @@ export function MenuCatalogClient({ copy, locale }: { copy: Dictionary; locale: 
           </Button>
         ))}
       </div>
-      <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="mt-8 grid gap-4 md:grid-cols-2 lg:grid-cols-3 lg:gap-3 xl:grid-cols-4">
         {status === "loading" ? (
           <p className="text-sm text-muted-foreground">{copy.menuPage.loading}</p>
         ) : visibleItems.length === 0 ? (
@@ -206,18 +206,18 @@ export function MenuCatalogClient({ copy, locale }: { copy: Dictionary; locale: 
                   src={resolveBackendMediaUrl(item.imageUrl) || "/images/umika-hero.png"}
                 />
               </button>
-              <CardHeader>
-                <button className="flex w-full items-start justify-between gap-4 text-left" onClick={() => void openItem(item)} type="button">
-                  <div>
-                    <CardTitle>{item.name}</CardTitle>
-                    <p className="mt-2 text-sm text-muted-foreground">{item.categoryName}</p>
+              <CardHeader className="lg:p-4">
+                <button className="flex w-full items-start justify-between gap-3 text-left" onClick={() => void openItem(item)} type="button">
+                  <div className="min-w-0">
+                    <CardTitle className="text-base leading-snug">{item.name}</CardTitle>
+                    <p className="mt-1 text-xs text-muted-foreground">{item.categoryName}</p>
                   </div>
-                  <span className="font-semibold">${item.price.toFixed(2)}</span>
+                  <span className="shrink-0 text-sm font-semibold">${item.price.toFixed(2)}</span>
                 </button>
               </CardHeader>
-              <CardContent className="flex flex-1 flex-col">
-                <p className="text-sm leading-6 text-muted-foreground">{item.description}</p>
-                <div className="mt-5 flex items-center justify-between gap-3">
+              <CardContent className="flex flex-1 flex-col lg:p-4 lg:pt-0">
+                <p className="text-sm leading-6 text-muted-foreground lg:line-clamp-2 lg:leading-5">{item.description}</p>
+                <div className="mt-5 flex items-center justify-between gap-3 lg:mt-4">
                   <div className="flex flex-wrap gap-2">
                     <Badge>{item.categoryName}</Badge>
                     {item.isAvailable === false ? <Badge>{copy.menuPage.unavailable}</Badge> : null}

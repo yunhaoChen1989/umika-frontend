@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { CreditCard, Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
+import { ChevronDown, CreditCard, Mail, Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -607,7 +607,7 @@ export function OrderCartClient({ copy, locale }: { copy: Dictionary; locale: Lo
 
   return (
     <section className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 lg:grid-cols-[1fr_400px] lg:px-8">
-      <div>
+      <div className="order-2 lg:order-1">
         <p className="text-sm font-semibold uppercase tracking-widest text-primary">{copy.orderPage.eyebrow}</p>
         <h1 className="mt-2 font-serif text-4xl font-semibold leading-tight sm:text-5xl">{copy.orderPage.title}</h1>
         {message ? (
@@ -649,7 +649,7 @@ export function OrderCartClient({ copy, locale }: { copy: Dictionary; locale: Lo
           )}
         </div>
       </div>
-      <aside className="h-fit rounded-lg border bg-card p-5 shadow-soft lg:sticky lg:top-24">
+      <aside className="order-1 h-fit rounded-lg border bg-card p-5 shadow-soft lg:order-2 lg:sticky lg:top-24">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">{copy.orderPage.cart}</h2>
           <Badge>
@@ -1074,9 +1074,13 @@ function OrderPlacedConfirmation({ order, copy, onClose }: { order: CheckoutResp
       <p className="text-base font-semibold">{copy.orderPage.orderPlaced}</p>
       <p className="mt-2 text-emerald-800">{copy.orderPage.orderPlacedHelp}</p>
       {isPickupOrder && isWaitingForAcceptance ? (
-        <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-base font-semibold text-amber-900">
-          {copy.orderPage.orderWaitingAcceptanceMessage}
-        </p>
+        <div className="mt-4 flex items-start gap-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-3 text-sky-950">
+          <Mail className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" />
+          <div>
+            <p className="font-semibold">{copy.orderPage.pickupConfirmationTitle}</p>
+            <p className="mt-1 text-sm leading-6 text-sky-900">{copy.orderPage.pickupConfirmationEmail}</p>
+          </div>
+        </div>
       ) : isPickupOrder && order.requestedPickupTime ? (
         <p className="mt-4 rounded-md border border-emerald-200 bg-white/80 px-3 py-3 text-base font-semibold text-emerald-950">
           {copy.orderPage.pickupReadyMessage.replace("{time}", pickupTime)}
@@ -1098,53 +1102,66 @@ function OrderReview({ order, copy }: { order: CheckoutResponse; copy: Dictionar
   const orderId = order.orderNumber ?? order.id ?? order.orderId;
 
   return (
-    <div className="mt-5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
-      <p className="font-semibold">{copy.orderPage.checkoutReady}</p>
-      <div className="mt-3 space-y-2">
-        {orderId ? <PreviewRow label={copy.orderPage.orderNumber} value={String(orderId)} /> : null}
-        {order.status ? <PreviewRow label={copy.orderPage.orderStatus} value={order.status} /> : null}
-        {order.orderType ? <PreviewRow label={copy.orderPage.orderType} value={formatOrderType(order.orderType, copy)} /> : null}
-        {order.requestedPickupTime ? <PreviewRow label={copy.orderPage.requestedPickupTime} value={formatPickupDateTime(order.requestedPickupTime)} /> : null}
-        <PreviewRow label={copy.orderPage.subtotal} value={formatMoney(order.subtotal)} />
-        <PreviewRow label={copy.orderPage.totalDiscount} value={formatMoney(order.totalDiscount)} />
-        {typeof order.couponDiscount === "number" ? <PreviewRow label="Coupon discount" value={formatDiscountAmount(order.couponDiscount)} /> : null}
-        <PreviewRow label={copy.orderPage.redemptionAmount} value={formatMoney(order.rewardDiscountAmount)} />
-        {typeof order.tipAmount === "number" ? <PreviewRow label={copy.orderPage.tipAmount} value={formatMoney(order.tipAmount)} /> : null}
-        <PreviewRow label={copy.orderPage.taxRate} value={formatPercent(order.taxRate)} />
-        <PreviewRow label={copy.orderPage.tax} value={formatMoney(order.taxAmount ?? order.tax)} />
-        <PreviewRow label={copy.orderPage.finalTotal} value={formatMoney(order.finalTotal ?? order.total)} />
-        <PreviewRow label={copy.orderPage.pointsRedeemed} value={formatPoints(order.pointsRedeemed)} />
-        <PreviewRow label={copy.orderPage.pointsEarned} value={formatPoints(order.pointsEarned)} />
-      </div>
-      {items.length ? (
-        <div className="mt-4 border-t border-emerald-200 pt-3">
-          <p className="font-semibold">{copy.orderPage.items}</p>
-          <div className="mt-2 space-y-2">
-            {items.map((item, index) => {
-              const name = item.itemName ?? item.name ?? item.menuItemId ?? `${copy.orderPage.itemFallback} ${index + 1}`;
-              const itemOptions = formatCartOptions(item.options ?? item.optionSnapshot);
-              return (
-                <div key={item.id ?? `${name}-${index}`} className="flex justify-between gap-3">
-                  <span className="min-w-0">
-                    <span className="block truncate">{name} x {item.quantity ?? 1}</span>
-                    {itemOptions.optionText ? <span className="mt-1 block truncate text-xs text-emerald-800">{itemOptions.optionText}</span> : null}
-                    {itemOptions.note ? <span className="mt-1 block truncate text-xs text-emerald-800">{copy.menuPage.specialInstructions}: {itemOptions.note}</span> : null}
-                  </span>
-                  <span>{formatMoney(item.lineTotal)}</span>
-                </div>
-              );
-            })}
+    <details className="group mt-4 rounded-md border border-emerald-200 bg-emerald-50 text-sm text-emerald-900">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0">
+          <span className="block font-semibold">{copy.orderPage.orderReview}</span>
+          <span className="mt-0.5 block truncate text-xs text-emerald-800">
+            {orderId ? `${copy.orderPage.orderNumber}: ${String(orderId)}` : copy.orderPage.checkoutReady}
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2 font-semibold">
+          {formatMoney(order.finalTotal ?? order.total)}
+          <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+        </span>
+      </summary>
+      <div className="border-t border-emerald-200 px-3 pb-3 pt-3">
+        <div className="space-y-2">
+          {orderId ? <PreviewRow label={copy.orderPage.orderNumber} value={String(orderId)} /> : null}
+          {order.status ? <PreviewRow label={copy.orderPage.orderStatus} value={order.status} /> : null}
+          {order.orderType ? <PreviewRow label={copy.orderPage.orderType} value={formatOrderType(order.orderType, copy)} /> : null}
+          {order.requestedPickupTime ? <PreviewRow label={copy.orderPage.requestedPickupTime} value={formatPickupDateTime(order.requestedPickupTime)} /> : null}
+          <PreviewRow label={copy.orderPage.subtotal} value={formatMoney(order.subtotal)} />
+          <PreviewRow label={copy.orderPage.totalDiscount} value={formatMoney(order.totalDiscount)} />
+          {typeof order.couponDiscount === "number" ? <PreviewRow label="Coupon discount" value={formatDiscountAmount(order.couponDiscount)} /> : null}
+          <PreviewRow label={copy.orderPage.redemptionAmount} value={formatMoney(order.rewardDiscountAmount)} />
+          {typeof order.tipAmount === "number" ? <PreviewRow label={copy.orderPage.tipAmount} value={formatMoney(order.tipAmount)} /> : null}
+          <PreviewRow label={copy.orderPage.taxRate} value={formatPercent(order.taxRate)} />
+          <PreviewRow label={copy.orderPage.tax} value={formatMoney(order.taxAmount ?? order.tax)} />
+          <PreviewRow label={copy.orderPage.finalTotal} value={formatMoney(order.finalTotal ?? order.total)} />
+          <PreviewRow label={copy.orderPage.pointsRedeemed} value={formatPoints(order.pointsRedeemed)} />
+          <PreviewRow label={copy.orderPage.pointsEarned} value={formatPoints(order.pointsEarned)} />
+        </div>
+        {items.length ? (
+          <div className="mt-4 border-t border-emerald-200 pt-3">
+            <p className="font-semibold">{copy.orderPage.items}</p>
+            <div className="mt-2 space-y-2">
+              {items.map((item, index) => {
+                const name = item.itemName ?? item.name ?? item.menuItemId ?? `${copy.orderPage.itemFallback} ${index + 1}`;
+                const itemOptions = formatCartOptions(item.options ?? item.optionSnapshot);
+                return (
+                  <div key={item.id ?? `${name}-${index}`} className="flex justify-between gap-3">
+                    <span className="min-w-0">
+                      <span className="block truncate">{name} x {item.quantity ?? 1}</span>
+                      {itemOptions.optionText ? <span className="mt-1 block truncate text-xs text-emerald-800">{itemOptions.optionText}</span> : null}
+                      {itemOptions.note ? <span className="mt-1 block truncate text-xs text-emerald-800">{copy.menuPage.specialInstructions}: {itemOptions.note}</span> : null}
+                    </span>
+                    <span>{formatMoney(item.lineTotal)}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      ) : null}
-      {order.customerNote ? (
-        <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
-          <p className="font-semibold text-amber-900">{copy.orderPage.customerNote}</p>
-          <p className="mt-1 text-amber-950">{order.customerNote}</p>
-        </div>
-      ) : null}
-      <p className="mt-4 text-xs text-emerald-800">{copy.orderPage.paymentNext}</p>
-    </div>
+        ) : null}
+        {order.customerNote ? (
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+            <p className="font-semibold text-amber-900">{copy.orderPage.customerNote}</p>
+            <p className="mt-1 text-amber-950">{order.customerNote}</p>
+          </div>
+        ) : null}
+        <p className="mt-4 text-xs text-emerald-800">{copy.orderPage.paymentNext}</p>
+      </div>
+    </details>
   );
 }
 

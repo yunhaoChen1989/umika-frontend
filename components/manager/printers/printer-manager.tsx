@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import type { Locale } from "@/lib/i18n";
@@ -91,6 +92,7 @@ export function PrinterManager({ locale }: { locale: Locale }) {
     {error && <p role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     {message && <p role="status" className="rounded-md bg-green-50 p-3 text-sm text-green-800">{message}</p>}
     {config && <>
+      <Button asChild variant="outline"><Link href={`/manager/settings/receipt-templates?locationId=${encodeURIComponent(locationId)}`}>{agentCopy.receiptTemplate}</Link></Button>
       <PrinterRoutingManager key={locationId} locationId={locationId} locale={locale}/>
       <section className="space-y-3 rounded-lg border bg-white p-4">
         <h2 className="font-medium">{connected ? copy.paired : copy.offline}</h2>

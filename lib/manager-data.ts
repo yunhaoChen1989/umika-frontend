@@ -87,6 +87,15 @@ export const managerMenus: ManagerMenu[] = [
     permission: "SETTING_VIEW",
     children: [
       {
+        id: "receipt-templates",
+        name: "Receipt Templates",
+        code: "MANAGER_RECEIPT_TEMPLATES",
+        path: "/manager/settings/receipt-templates",
+        icon: "ReceiptText",
+        sortOrder: 20,
+        permission: "SETTING_EDIT",
+      },
+      {
         id: "system-menus",
         name: "System Menus",
         code: "MANAGER_SYSTEM_MENUS",
@@ -139,6 +148,7 @@ export const managerRoleAccess: ManagerRoleAccess[] = [
       "MANAGER_NOTIFICATIONS",
       "MANAGER_AUDIT_LOGS",
       "MANAGER_SETTINGS",
+      "MANAGER_RECEIPT_TEMPLATES",
     ],
     permissionCodes: [
       "DASHBOARD_VIEW",

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { MapPin, ShoppingCart, UserRound } from "lucide-react";
+import { LogOut, MapPin, ShoppingCart, UserRound } from "lucide-react";
 
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,7 @@ export function SiteHeader({ locale }: { locale: Locale }) {
   const [location, setLocation] = useState<LocationDto | null>(null);
   const [locations, setLocations] = useState<LocationDto[]>([]);
   const [cartCount, setCartCount] = useState(0);
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -276,6 +277,25 @@ export function SiteHeader({ locale }: { locale: Locale }) {
     router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }
 
+  async function signOut() {
+    setIsSigningOut(true);
+
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      cache: "no-store",
+    }).catch(() => null);
+
+    localStorage.removeItem("umika_access_token");
+    localStorage.removeItem("umika_token_type");
+    sessionStorage.removeItem("umika_access_token");
+    sessionStorage.removeItem("umika_token_type");
+    setCanViewAdmin(false);
+    setAccountName(null);
+    window.dispatchEvent(new Event("umika-auth-changed"));
+    router.replace("/");
+    router.refresh();
+  }
+
   const selectedLocationValue = location?.locationCode
     ? `code:${location.locationCode}`
     : location?.id
@@ -315,6 +335,19 @@ export function SiteHeader({ locale }: { locale: Locale }) {
           className={isMobile ? "h-9 shrink-0 px-3 text-sm font-semibold" : undefined}
         >
           <Link href="/admin">{dict.nav.admin}</Link>
+        </Button>
+      ) : null}
+      {accountName && isMobile ? (
+        <Button
+          className="h-10 shrink-0 px-3 text-sm font-semibold"
+          disabled={isSigningOut}
+          onClick={() => void signOut()}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          <LogOut className="h-4 w-4" />
+          {dict.common.logout}
         </Button>
       ) : null}
     </>
@@ -372,14 +405,28 @@ export function SiteHeader({ locale }: { locale: Locale }) {
             </Link>
           </Button>
           {accountName ? (
-            <Link
-              href="/account"
-              className="hidden max-w-28 truncate text-sm font-semibold text-foreground hover:text-primary lg:block"
-              aria-label={dict.common.accountLabel}
-              title={accountName}
-            >
-              {accountName}
-            </Link>
+            <>
+              <Link
+                href="/account"
+                className="hidden max-w-28 truncate text-sm font-semibold text-foreground hover:text-primary lg:block"
+                aria-label={dict.common.accountLabel}
+                title={accountName}
+              >
+                {accountName}
+              </Link>
+              <Button
+                aria-label={dict.common.logout}
+                className="hidden md:inline-flex"
+                disabled={isSigningOut}
+                onClick={() => void signOut()}
+                size="icon"
+                title={dict.common.logout}
+                type="button"
+                variant="outline"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </>
           ) : null}
           <Button asChild variant="outline" size="icon" aria-label={dict.orderPage.cart}>
             <Link href="/order" className="relative">

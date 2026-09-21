@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getLoginRedirectHref } from "@/lib/auth-redirect";
 import { getDictionary, type Locale } from "@/lib/i18n";
+import { receiptTemplateTranslations } from "@/lib/receipt-template-translations";
 import { cn } from "@/lib/utils";
 import type { ManagerMenu } from "@/lib/manager-types";
 import type { LocationDto } from "@/lib/location-types";
@@ -141,8 +142,12 @@ export function ManagerShell({
         return;
       }
 
+      const nextRoleLabel = resolveRoleLabel(profile);
       setAccountName(resolveAccountName(profile));
-      setRoleLabel(resolveRoleLabel(profile));
+      setRoleLabel(nextRoleLabel);
+      if (nextRoleLabel === "Admin" || nextRoleLabel === "Manager") {
+        setRuntimeMenus((current) => ensureReceiptTemplateMenu(current, locale));
+      }
       setAuthStatus("authenticated");
     }
 
@@ -167,7 +172,7 @@ export function ManagerShell({
       window.removeEventListener("focus", refreshProfile);
       window.removeEventListener("storage", refreshProfileFromStorage);
     };
-  }, [pathname, router]);
+  }, [locale, pathname, router]);
 
   useEffect(() => {
     let active = true;
@@ -444,9 +449,17 @@ export function ManagerShell({
                   {accountName ?? "User"}
                 </span>
               </div>
-              <Button onClick={() => void signOut()} variant="outline" size="sm" className="hidden sm:inline-flex" type="button">
+              <Button
+                aria-label={dict.manager.signOut}
+                className="h-10 w-10 px-0 sm:w-auto sm:px-3"
+                onClick={() => void signOut()}
+                title={dict.manager.signOut}
+                variant="outline"
+                size="sm"
+                type="button"
+              >
                 <LogOut className="h-4 w-4" />
-                {dict.manager.signOut}
+                <span className="hidden sm:inline">{dict.manager.signOut}</span>
               </Button>
             </div>
           </div>
@@ -672,6 +685,26 @@ function buildRuntimeManagerMenus(systemMenus: SystemMenuDto[]) {
 
 function sortRuntimeManagerMenus(menus: ManagerMenu[]) {
   return [...menus].sort((first, second) => first.sortOrder - second.sortOrder || first.name.localeCompare(second.name));
+}
+
+function ensureReceiptTemplateMenu(menus: ManagerMenu[], locale: Locale): ManagerMenu[] {
+  if (menus.some((menu) => menu.code === "MANAGER_RECEIPT_TEMPLATES" || menu.children?.some((child) => child.code === "MANAGER_RECEIPT_TEMPLATES"))) {
+    return menus;
+  }
+  const copy = receiptTemplateTranslations[locale];
+  return menus.map((menu) => {
+    if (menu.code !== "MANAGER_SETTINGS" && menu.path !== "/manager/settings") return menu;
+    const child: ManagerMenu = {
+      id: "receipt-templates",
+      name: copy.title,
+      description: copy.description,
+      code: "MANAGER_RECEIPT_TEMPLATES",
+      path: "/manager/settings/receipt-templates",
+      icon: "ReceiptText",
+      sortOrder: 16,
+    };
+    return { ...menu, children: sortRuntimeManagerMenus([...(menu.children ?? []), child]) };
+  });
 }
 
 function resolveAccountName(profile: CurrentAccountProfile | null) {

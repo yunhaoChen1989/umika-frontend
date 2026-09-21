@@ -1,6 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { shouldUseSecureAuthCookie, type BackendAuthResponse, unwrapAuthResponse } from "@/lib/auth-session";
+import {
+  AUTH_COOKIE_MAX_AGE_SECONDS,
+  shouldUseSecureAuthCookie,
+  type BackendAuthResponse,
+  unwrapAuthResponse,
+} from "@/lib/auth-session";
 
 const backendBaseUrl = (
   process.env.BACKEND_API_BASE_URL ??
@@ -17,9 +22,10 @@ export async function POST(request: NextRequest) {
   const lastName = typeof payload?.lastName === "string" ? payload.lastName.trim() : "";
   const preferredLanguage = typeof payload?.preferredLanguage === "string" ? payload.preferredLanguage.trim() : "";
   const referralCode = typeof payload?.referralCode === "string" ? payload.referralCode.trim() : "";
+  const verificationCode = typeof payload?.verificationCode === "string" ? payload.verificationCode.trim() : "";
 
-  if (!email || !password) {
-    return NextResponse.json({ message: "Email and password are required." }, { status: 400 });
+  if (!email || !password || !verificationCode) {
+    return NextResponse.json({ code: "MISSING_REQUIRED_FIELDS" }, { status: 400 });
   }
 
   if (password.length < 8) {
@@ -41,6 +47,7 @@ export async function POST(request: NextRequest) {
       lastName: lastName || null,
       preferredLanguage: preferredLanguage || null,
       referralCode: referralCode || null,
+      verificationCode,
     }),
     cache: "no-store",
     signal: controller.signal,
@@ -52,13 +59,21 @@ export async function POST(request: NextRequest) {
   }
 
   if (!backendResponse.ok) {
+    const body = await backendResponse.json().catch(() => null);
+    const message =
+      typeof body?.error?.message === "string"
+        ? body.error.message
+        : typeof body?.message === "string"
+          ? body.message
+          : "";
+    const code =
+      backendResponse.status === 409
+        ? "EMAIL_EXISTS"
+        : message.toLowerCase().includes("verification code")
+          ? "INVALID_VERIFICATION_CODE"
+          : "REGISTRATION_FAILED";
     return NextResponse.json(
-      {
-        message:
-          backendResponse.status === 409
-            ? "An account with this email already exists."
-            : "Registration failed. Please try again.",
-      },
+      { code },
       { status: backendResponse.status },
     );
   }
@@ -77,7 +92,7 @@ export async function POST(request: NextRequest) {
   });
   response.cookies.set("umika_access_token", accessToken, {
     httpOnly: true,
-    maxAge: 60 * 60,
+    maxAge: AUTH_COOKIE_MAX_AGE_SECONDS,
     path: "/",
     sameSite: "lax",
     secure: shouldUseSecureAuthCookie(request),

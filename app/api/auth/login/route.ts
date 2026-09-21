@@ -1,6 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { shouldUseSecureAuthCookie, type BackendAuthResponse, unwrapAuthResponse } from "@/lib/auth-session";
+import {
+  AUTH_COOKIE_MAX_AGE_SECONDS,
+  shouldUseSecureAuthCookie,
+  type BackendAuthResponse,
+  unwrapAuthResponse,
+} from "@/lib/auth-session";
 
 const backendBaseUrl = (
   process.env.BACKEND_API_BASE_URL ??
@@ -55,7 +60,7 @@ export async function POST(request: NextRequest) {
   });
   response.cookies.set("umika_access_token", accessToken, {
     httpOnly: true,
-    maxAge: 60 * 60,
+    maxAge: AUTH_COOKIE_MAX_AGE_SECONDS,
     path: "/",
     sameSite: "lax",
     secure: shouldUseSecureAuthCookie(request),

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, LockKeyhole, Mail, Phone, User, UserPlus } from "lucide-react";
+import { AlertCircle, LockKeyhole, Mail, Phone, ShieldCheck, User, UserPlus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { getLoginRedirectHref } from "@/lib/auth-redirect";
@@ -18,6 +18,18 @@ type RegisterCopy = {
   lastNamePlaceholder: string;
   email: string;
   emailPlaceholder: string;
+  verificationCode: string;
+  verificationCodePlaceholder: string;
+  sendCode: string;
+  sendingCode: string;
+  resendCode: string;
+  resendIn: string;
+  codeSent: string;
+  emailRequired: string;
+  emailExists: string;
+  sendCodeError: string;
+  rateLimited: string;
+  invalidVerificationCode: string;
   phone: string;
   phonePlaceholder: string;
   password: string;
@@ -42,12 +54,53 @@ export function RegisterForm({ copy, locale, redirectPath }: { copy: RegisterCop
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [email, setEmail] = useState("");
+  const [isSendingCode, setIsSendingCode] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
   const [referralCode, setReferralCode] = useState("");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setReferralCode(params.get("ref")?.trim() ?? "");
   }, []);
+
+  useEffect(() => {
+    if (resendSeconds <= 0) return;
+    const timer = window.setInterval(() => {
+      setResendSeconds((value) => Math.max(0, value - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [resendSeconds]);
+
+  async function sendVerificationCode() {
+    setError(null);
+    if (!email.trim()) {
+      setError(copy.emailRequired);
+      return;
+    }
+    setIsSendingCode(true);
+    const response = await fetch("/api/auth/email-verification", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, preferredLanguage: locale }),
+    }).catch(() => null);
+    setIsSendingCode(false);
+
+    const body = response ? await response.json().catch(() => null) : null;
+    if (!response?.ok) {
+      const message =
+        body?.code === "EMAIL_EXISTS"
+          ? copy.emailExists
+          : body?.code === "RATE_LIMITED"
+            ? copy.rateLimited
+            : copy.sendCodeError;
+      setError(message);
+      return;
+    }
+    setCodeSent(true);
+    setResendSeconds(typeof body?.resendAfterSeconds === "number" ? body.resendAfterSeconds : 60);
+  }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -74,6 +127,7 @@ export function RegisterForm({ copy, locale, redirectPath }: { copy: RegisterCop
         email: formData.get("email"),
         phone: formData.get("phone"),
         password,
+        verificationCode: formData.get("verificationCode"),
         preferredLanguage: locale,
         referralCode: referralCode || null,
       }),
@@ -83,7 +137,13 @@ export function RegisterForm({ copy, locale, redirectPath }: { copy: RegisterCop
 
     if (!response?.ok) {
       const body = response ? await response.json().catch(() => null) : null;
-      setError(typeof body?.message === "string" ? body.message : copy.genericError);
+      setError(
+        body?.code === "EMAIL_EXISTS"
+          ? copy.emailExists
+          : body?.code === "INVALID_VERIFICATION_CODE"
+            ? copy.invalidVerificationCode
+            : copy.genericError,
+      );
       return;
     }
 
@@ -147,6 +207,50 @@ export function RegisterForm({ copy, locale, redirectPath }: { copy: RegisterCop
           placeholder={copy.emailPlaceholder}
           required
           type="email"
+          value={email}
+          onChange={(event) => {
+            setEmail(event.target.value);
+            setCodeSent(false);
+            setResendSeconds(0);
+          }}
+        />
+      </div>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">{codeSent ? copy.codeSent : ""}</p>
+        <Button
+          disabled={isSendingCode || resendSeconds > 0}
+          onClick={sendVerificationCode}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          {isSendingCode
+            ? copy.sendingCode
+            : resendSeconds > 0
+              ? copy.resendIn.replace("{seconds}", String(resendSeconds))
+              : codeSent
+                ? copy.resendCode
+                : copy.sendCode}
+        </Button>
+      </div>
+
+      <label className="mt-5 block text-sm font-medium" htmlFor="verificationCode">
+        {copy.verificationCode}
+      </label>
+      <div className="mt-2 flex items-center gap-2 rounded-md border bg-background px-3">
+        <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+        <input
+          id="verificationCode"
+          name="verificationCode"
+          autoComplete="one-time-code"
+          className="h-11 w-full bg-transparent text-base tracking-[0.25em] outline-none"
+          inputMode="numeric"
+          maxLength={6}
+          minLength={6}
+          pattern="[0-9]{6}"
+          placeholder={copy.verificationCodePlaceholder}
+          required
+          type="text"
         />
       </div>
 

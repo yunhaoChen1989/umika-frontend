@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { AUTH_COOKIE_MAX_AGE_SECONDS, shouldUseSecureAuthCookie } from "@/lib/auth-session";
+
 const managerRoles = new Set(["ROLE_STAFF", "ROLE_MANAGER", "ROLE_ADMIN", "STAFF", "MANAGER", "ADMIN"]);
 
 export async function middleware(request: NextRequest) {
@@ -34,7 +36,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  response.cookies.set("umika_access_token", token, {
+    httpOnly: true,
+    maxAge: AUTH_COOKIE_MAX_AGE_SECONDS,
+    path: "/",
+    sameSite: "lax",
+    secure: shouldUseSecureAuthCookie(request),
+  });
+  return response;
 }
 
 export const config = {
