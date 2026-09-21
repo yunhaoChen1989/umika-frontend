@@ -1,7 +1,0 @@
-{
-  "/api/print-agent/[...path]/route": "app/api/print-agent/[...path]/route.js",
-  "/login/page": "app/login/page.js",
-  "/manager/settings/printers/page": "app/manager/settings/printers/page.js",
-  "/manager/orders/page": "app/manager/orders/page.js",
-  "/manager/stores/page": "app/manager/stores/page.js"
-}
