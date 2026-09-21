@@ -9,10 +9,10 @@ export default async function OrderPage() {
 
   return (
     <>
-      <OrderCartClient copy={dict} locale={locale} />
-      <section className="mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-7xl px-4 pt-4 sm:px-6 sm:pt-6 lg:px-8">
         <OrderHistoryPanel copy={dict.accountPage} paymentCopy={dict} />
       </section>
+      <OrderCartClient copy={dict} locale={locale} view="recommendations" />
     </>
   );
 }

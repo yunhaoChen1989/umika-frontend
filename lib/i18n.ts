@@ -107,6 +107,7 @@ export const dictionaries = {
     orderPage: {
       eyebrow: "Pickup",
       title: "Build your order",
+      recommendedItems: "Recommended items",
       addToCart: "Add to cart",
       cart: "Cart",
       items: "items",
@@ -519,6 +520,7 @@ export const dictionaries = {
     orderPage: {
       eyebrow: "自取",
       title: "建立订单",
+      recommendedItems: "推荐菜品",
       addToCart: "加入购物车",
       cart: "购物车",
       items: "项",
@@ -926,6 +928,7 @@ export const dictionaries = {
     orderPage: {
       eyebrow: "픽업",
       title: "주문 만들기",
+      recommendedItems: "추천 메뉴",
       addToCart: "장바구니에 담기",
       cart: "장바구니",
       items: "개",

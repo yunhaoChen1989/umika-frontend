@@ -154,7 +154,7 @@ export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCop
   }, [authRefreshKey, searchParams]);
 
   return (
-    <section className="mt-8">
+    <section className="mt-8 scroll-mt-24" id="order-history">
       <div className="flex items-center gap-2">
         <ClipboardList className="h-5 w-5 text-primary" />
         <h2 className="text-2xl font-semibold">{copy.orderHistoryTitle}</h2>

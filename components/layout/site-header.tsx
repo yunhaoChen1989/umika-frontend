@@ -429,7 +429,7 @@ export function SiteHeader({ locale }: { locale: Locale }) {
             </>
           ) : null}
           <Button asChild variant="outline" size="icon" aria-label={dict.orderPage.cart}>
-            <Link href="/order" className="relative">
+            <Link href="/cart" className="relative">
               <ShoppingCart className="h-4 w-4" />
               {cartCount > 0 ? (
                 <span className="absolute -right-2 -top-2 grid min-h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-[11px] font-bold leading-none text-primary-foreground">

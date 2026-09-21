@@ -33,7 +33,15 @@ type CouponApplyResponse = Partial<CartResponse> & {
   message?: string | null;
 };
 
-export function OrderCartClient({ copy, locale }: { copy: Dictionary; locale: Locale }) {
+export function OrderCartClient({
+  copy,
+  locale,
+  view = "cart",
+}: {
+  copy: Dictionary;
+  locale: Locale;
+  view?: "cart" | "recommendations";
+}) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [menuItems, setMenuItems] = useState<ResolvedMenuItem[]>([]);
@@ -71,6 +79,7 @@ export function OrderCartClient({ copy, locale }: { copy: Dictionary; locale: Lo
   const availablePoints = Number(redemptionPreview?.availablePoints ?? 0);
   const maxRedeemablePoints = Number(redemptionPreview?.maxRedeemablePoints ?? 0);
   const canRedeemPoints = Boolean(redemptionPreview && availablePoints > 0 && maxRedeemablePoints > 0);
+  const showCart = view === "cart";
 
   useEffect(() => {
     setSessionId(getOrCreateGuestSessionId());
@@ -606,10 +615,10 @@ export function OrderCartClient({ copy, locale }: { copy: Dictionary; locale: Lo
   }
 
   return (
-    <section className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 lg:grid-cols-[1fr_400px] lg:px-8">
-      <div className="order-2 lg:order-1">
+    <section className="mx-auto flex max-w-7xl flex-col gap-10 px-4 py-10 sm:px-6 sm:py-12 lg:px-8">
+      <div className="order-2">
         <p className="text-sm font-semibold uppercase tracking-widest text-primary">{copy.orderPage.eyebrow}</p>
-        <h1 className="mt-2 font-serif text-4xl font-semibold leading-tight sm:text-5xl">{copy.orderPage.title}</h1>
+        <h1 className="mt-2 font-serif text-3xl font-semibold leading-tight sm:text-4xl">{copy.orderPage.recommendedItems}</h1>
         {message ? (
           <p className="mt-5 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {message}
@@ -649,7 +658,7 @@ export function OrderCartClient({ copy, locale }: { copy: Dictionary; locale: Lo
           )}
         </div>
       </div>
-      <aside className="order-1 h-fit rounded-lg border bg-card p-5 shadow-soft lg:order-2 lg:sticky lg:top-24">
+      {showCart ? <aside className="order-1 h-fit rounded-lg border bg-card p-4 shadow-soft sm:p-5">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">{copy.orderPage.cart}</h2>
           <Badge>
@@ -835,7 +844,7 @@ export function OrderCartClient({ copy, locale }: { copy: Dictionary; locale: Lo
           <CreditCard className="h-4 w-4" />
           {copy.orderPage.checkout}
         </Button>
-      </aside>
+      </aside> : null}
       <Dialog open={Boolean(selectedItem)} onOpenChange={(open) => !open && setSelectedItem(null)}>
         <DialogContent className="w-[min(96vw,54rem)]">
           {selectedItem ? (
