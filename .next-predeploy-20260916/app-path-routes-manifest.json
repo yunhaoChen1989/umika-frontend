@@ -1,0 +1,7 @@
+{
+  "/api/print-agent/[...path]/route": "/api/print-agent/[...path]",
+  "/login/page": "/login",
+  "/manager/settings/printers/page": "/manager/settings/printers",
+  "/manager/orders/page": "/manager/orders",
+  "/manager/stores/page": "/manager/stores"
+}
