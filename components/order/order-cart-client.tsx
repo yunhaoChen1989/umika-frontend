@@ -33,6 +33,13 @@ type CouponApplyResponse = Partial<CartResponse> & {
   message?: string | null;
 };
 
+type BusinessSettingsResponse = {
+  settings?: Array<{
+    settingKey?: string | null;
+    effectiveValue?: string | null;
+  }> | null;
+};
+
 export function OrderCartClient({
   copy,
   locale,
@@ -64,6 +71,7 @@ export function OrderCartClient({
   const [tipMode, setTipMode] = useState<"0" | "10" | "15" | "18" | "custom">("0");
   const [customTipAmount, setCustomTipAmount] = useState(0);
   const [orderType, setOrderType] = useState<"PICKUP" | "DELIVERY" | "DINE_IN">("PICKUP");
+  const [deliveryEnabled, setDeliveryEnabled] = useState(false);
   const [requestedPickupTime, setRequestedPickupTime] = useState("");
   const [selectedItem, setSelectedItem] = useState<ResolvedMenuItem | null>(null);
   const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([]);
@@ -146,8 +154,10 @@ export function OrderCartClient({
       frequentItemsUrl.searchParams.set("locationId", nextLocationId);
       const catalogUrl = new URL("/api/menu-catalog", window.location.origin);
       catalogUrl.searchParams.set("locationId", nextLocationId);
+      const businessSettingsUrl = new URL("/api/business-settings/effective", window.location.origin);
+      businessSettingsUrl.searchParams.set("locationId", nextLocationId);
 
-      const [menuResponse, catalogResponse] = await Promise.all([
+      const [menuResponse, catalogResponse, businessSettingsResponse] = await Promise.all([
         fetch(frequentItemsUrl.toString(), {
           headers: getAuthHeaders(),
           cache: "no-store",
@@ -157,7 +167,22 @@ export function OrderCartClient({
           headers: getAuthHeaders(),
           cache: "no-store",
         }).catch(() => null),
+        fetch(businessSettingsUrl.toString(), {
+          method: "GET",
+          headers: getAuthHeaders(),
+          cache: "no-store",
+        }).catch(() => null),
       ]);
+
+      const businessSettings = businessSettingsResponse?.ok
+        ? normalizePayload<BusinessSettingsResponse>(await businessSettingsResponse.json().catch(() => null))
+        : null;
+      const deliverySetting = businessSettings?.settings?.find((setting) => setting.settingKey === "DELIVERY_ENABLED");
+      const nextDeliveryEnabled = parseBooleanSetting(deliverySetting?.effectiveValue, true);
+      setDeliveryEnabled(nextDeliveryEnabled);
+      if (!nextDeliveryEnabled) {
+        setOrderType((current) => (current === "DELIVERY" ? "PICKUP" : current));
+      }
 
       const nextCatalogItems = catalogResponse?.ok
         ? flattenMenuCatalog((await catalogResponse.json().catch(() => null)) as MenuCatalogResponse | null, locale)
@@ -624,7 +649,7 @@ export function OrderCartClient({
             {message}
           </p>
         ) : null}
-        <div className="mt-8 grid gap-4 md:grid-cols-2">
+        <div className="mt-8 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
           {status === "loading" ? (
             <p className="text-sm text-muted-foreground">{copy.orderPage.loading}</p>
           ) : menuItems.length === 0 ? (
@@ -640,15 +665,15 @@ export function OrderCartClient({
                     src={resolveBackendMediaUrl(item.imageUrl) || "/images/umika-hero.png"}
                   />
                 </button>
-                <CardHeader>
-                  <button className="flex w-full items-start justify-between gap-4 text-left" onClick={() => void openItem(item)} type="button">
-                    <CardTitle>{item.name}</CardTitle>
-                    <span className="font-semibold">${Number(item.price ?? 0).toFixed(2)}</span>
+                <CardHeader className="p-3 sm:p-4">
+                  <button className="flex w-full flex-col items-start gap-1 text-left xl:flex-row xl:justify-between xl:gap-3" onClick={() => void openItem(item)} type="button">
+                    <CardTitle className="text-base leading-snug sm:text-lg">{item.name}</CardTitle>
+                    <span className="shrink-0 font-semibold">${Number(item.price ?? 0).toFixed(2)}</span>
                   </button>
                 </CardHeader>
-                <CardContent className="flex flex-1 flex-col">
-                  <p className="text-sm leading-6 text-muted-foreground">{item.description}</p>
-                  <Button className="mt-5 w-full" disabled={!cart || pendingId === item.id || item.isAvailable === false} onClick={() => void openItem(item)} type="button">
+                <CardContent className="flex flex-1 flex-col p-3 pt-0 sm:p-4 sm:pt-0">
+                  <p className="line-clamp-3 text-sm leading-5 text-muted-foreground">{item.description}</p>
+                  <Button className="mt-4 w-full whitespace-normal px-2" disabled={!cart || pendingId === item.id || item.isAvailable === false} onClick={() => void openItem(item)} type="button">
                     <Plus className="h-4 w-4" />
                     {copy.orderPage.addToCart}
                   </Button>
@@ -753,7 +778,7 @@ export function OrderCartClient({
               value={orderType}
             >
               <option value="PICKUP">{copy.orderPage.pickup}</option>
-              <option value="DELIVERY">{copy.orderPage.delivery}</option>
+              {deliveryEnabled ? <option value="DELIVERY">{copy.orderPage.delivery}</option> : null}
               <option value="DINE_IN">{copy.orderPage.dineIn}</option>
             </select>
           </label>
@@ -1302,6 +1327,13 @@ function formatOrderType(value: string, copy: Dictionary) {
   }
 
   return value;
+}
+
+function parseBooleanSetting(value: string | null | undefined, fallback: boolean) {
+  if (value == null || value.trim() === "") {
+    return fallback;
+  }
+  return ["true", "1", "yes", "on", "enabled"].includes(value.trim().toLowerCase());
 }
 
 function calculateTipAmount(subtotal: number, tipMode: "0" | "10" | "15" | "18" | "custom", customTipAmount: number) {
