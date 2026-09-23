@@ -35,6 +35,40 @@ export type MenuItemImageDto = {
   createdAt: string | null;
 };
 
+export type MenuOptionCategoryDto = {
+  id: string | null;
+  locationId: string | null;
+  name: string;
+  nameZh: string | null;
+  nameKo: string | null;
+  description: string | null;
+  descriptionZh: string | null;
+  descriptionKo: string | null;
+  isRequired: boolean | null;
+  minSelect: number | null;
+  maxSelect: number | null;
+  sortOrder: number | null;
+  isActive: boolean | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type MenuOptionDto = {
+  id: string | null;
+  categoryId: string;
+  name: string;
+  nameZh: string | null;
+  nameKo: string | null;
+  description: string | null;
+  descriptionZh: string | null;
+  descriptionKo: string | null;
+  priceModifier: string | number | null;
+  sortOrder: number | null;
+  isActive: boolean | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
 export type MenuOverrideTargetType = "CATEGORY" | "ITEM";
 
 export type LocationMenuOverrideDto = {

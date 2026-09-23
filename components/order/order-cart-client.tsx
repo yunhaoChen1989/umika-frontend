@@ -267,8 +267,22 @@ export function OrderCartClient({
     setSelectedItem((current) => (current?.id === resolvedItem.id ? detailItem : current));
   }
 
-  function toggleOption(optionId: string) {
-    setSelectedOptionIds((current) => (current.includes(optionId) ? current.filter((id) => id !== optionId) : [...current, optionId]));
+  function toggleOption(group: ResolvedMenuItem["optionGroups"][number], optionId: string) {
+    setSelectedOptionIds((current) => {
+      if (current.includes(optionId)) {
+        return current.filter((id) => id !== optionId);
+      }
+
+      const groupIds = new Set(group.options.map((option) => option.id));
+      const selectedInGroup = current.filter((id) => groupIds.has(id));
+      if (group.maxSelect === 1) {
+        return [...current.filter((id) => !groupIds.has(id)), optionId];
+      }
+      if (group.maxSelect != null && selectedInGroup.length >= group.maxSelect) {
+        return current;
+      }
+      return [...current, optionId];
+    });
   }
 
   async function addItem(menuItemId: string, quantity = 1, optionIds: string[] = [], note = "") {
@@ -905,7 +919,10 @@ export function OrderCartClient({
                       <div className="mt-3 space-y-4">
                         {selectedItem.optionGroups.map((group, groupIndex) => (
                           <div className="rounded-md border border-border p-3" key={group.id ?? `group-${groupIndex}`}>
-                            {group.name ? <p className="mb-2 text-sm font-semibold">{group.name}</p> : null}
+                            {group.name ? <p className="text-sm font-semibold">{group.name}</p> : null}
+                            {optionRuleText(group, locale) ? (
+                              <p className="mb-2 mt-0.5 text-xs text-muted-foreground">{optionRuleText(group, locale)}</p>
+                            ) : null}
                             <div className="space-y-2">
                               {group.options.map((option) => (
                                 <label className="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50" key={option.id}>
@@ -913,7 +930,7 @@ export function OrderCartClient({
                                     <input
                                       checked={selectedOptionIds.includes(option.id)}
                                       className="h-4 w-4 accent-primary"
-                                      onChange={() => toggleOption(option.id)}
+                                      onChange={() => toggleOption(group, option.id)}
                                       type="checkbox"
                                     />
                                     <span className="truncate">{option.name}</span>
@@ -963,7 +980,7 @@ export function OrderCartClient({
                   {copy.common.cancel}
                 </Button>
                 <Button
-                  disabled={!cart || pendingId === selectedItem.id || selectedItem.isAvailable === false}
+                  disabled={!cart || pendingId === selectedItem.id || selectedItem.isAvailable === false || !hasValidOptionSelections(selectedItem, selectedOptionIds)}
                   onClick={() => void addItem(selectedItem.id, itemQuantity, selectedOptionIds, itemNote)}
                   type="button"
                 >
@@ -1376,6 +1393,38 @@ function formatPickupDateTime(value: string | null | undefined) {
 
 function isPaidOrderStatus(value: unknown) {
   return typeof value === "string" && ["PAID", "COMPLETED"].includes(value.toUpperCase());
+}
+
+function hasValidOptionSelections(item: ResolvedMenuItem, selectedIds: string[]) {
+  return item.optionGroups.every((group) => {
+    if (group.options.length === 0) {
+      return true;
+    }
+    const optionIds = new Set(group.options.map((option) => option.id));
+    const count = selectedIds.filter((id) => optionIds.has(id)).length;
+    const minimum = group.minSelect ?? (group.isRequired ? 1 : 0);
+    return count >= minimum && (group.maxSelect == null || count <= group.maxSelect);
+  });
+}
+
+function optionRuleText(group: ResolvedMenuItem["optionGroups"][number], locale: Locale) {
+  const minimum = group.minSelect ?? (group.isRequired ? 1 : 0);
+  const maximum = group.maxSelect;
+  if (minimum === 0 && maximum == null) return "";
+
+  if (locale === "zh") {
+    if (minimum > 0 && maximum != null) return `请选择 ${minimum} 至 ${maximum} 项`;
+    if (minimum > 0) return `至少选择 ${minimum} 项`;
+    return `最多选择 ${maximum} 项`;
+  }
+  if (locale === "ko") {
+    if (minimum > 0 && maximum != null) return `${minimum}~${maximum}개 선택`;
+    if (minimum > 0) return `최소 ${minimum}개 선택`;
+    return `최대 ${maximum}개 선택`;
+  }
+  if (minimum > 0 && maximum != null) return `Choose ${minimum} to ${maximum}`;
+  if (minimum > 0) return `Choose at least ${minimum}`;
+  return `Choose up to ${maximum}`;
 }
 
 function getCurrentPath(pathname: string, searchParams: URLSearchParams | ReadonlyURLSearchParamsLike) {

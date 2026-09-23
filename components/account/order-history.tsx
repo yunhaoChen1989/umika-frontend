@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ClipboardList } from "lucide-react";
+import { ChevronLeft, ChevronRight, ClipboardList } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { StripePaymentSection } from "@/components/order/stripe-payment-section";
@@ -17,7 +17,11 @@ import type { Dictionary } from "@/lib/i18n";
 
 type SpringPage<T> = {
   content?: T[];
+  number?: number;
+  totalPages?: number;
 };
+
+const PAGE_SIZE = 10;
 
 type OrderHistoryCopy = {
   orderHistoryTitle: string;
@@ -54,9 +58,13 @@ export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCop
   const [status, setStatus] = useState<"loading" | "ready" | "unauthenticated" | "error">("loading");
   const [selectedOrder, setSelectedOrder] = useState<CheckoutResponse | null>(null);
   const [authRefreshKey, setAuthRefreshKey] = useState(0);
+  const [pageNumber, setPageNumber] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const searchKey = searchParams.toString();
 
   useEffect(() => {
     function refreshHistory() {
+      setPageNumber(0);
       setAuthRefreshKey((current) => current + 1);
     }
 
@@ -78,18 +86,25 @@ export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCop
   }, []);
 
   useEffect(() => {
+    setPageNumber(0);
+  }, [searchKey]);
+
+  useEffect(() => {
     let active = true;
+    const activeSearchParams = new URLSearchParams(searchKey);
     const locationId =
-      searchParams.get("locationId")?.trim() ??
-      searchParams.get("location")?.trim() ??
-      searchParams.get("storeId")?.trim() ??
-      searchParams.get("store")?.trim();
-    const locationCode = searchParams.get("locationCode")?.trim() ?? searchParams.get("storeCode")?.trim();
+      activeSearchParams.get("locationId")?.trim() ??
+      activeSearchParams.get("location")?.trim() ??
+      activeSearchParams.get("storeId")?.trim() ??
+      activeSearchParams.get("store")?.trim();
+    const locationCode = activeSearchParams.get("locationCode")?.trim() ?? activeSearchParams.get("storeCode")?.trim();
 
     async function loadOrders() {
       const token = localStorage.getItem("umika_access_token");
 
       if (!token) {
+        setOrders([]);
+        setTotalPages(0);
         setStatus("unauthenticated");
         return;
       }
@@ -104,8 +119,8 @@ export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCop
       }
 
       const url = new URL("/api/orders", window.location.origin);
-      url.searchParams.set("page", "0");
-      url.searchParams.set("size", "10");
+      url.searchParams.set("page", String(pageNumber));
+      url.searchParams.set("size", String(PAGE_SIZE));
       url.searchParams.append("sort", "createdAt,desc");
 
       if (currentLocationId) {
@@ -142,7 +157,10 @@ export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCop
       }
 
       const body = (await response.json().catch(() => null)) as SpringPage<CheckoutResponse> | CheckoutResponse[] | null;
-      setOrders(Array.isArray(body) ? body : body?.content ?? []);
+      const loadedOrders = Array.isArray(body) ? body : body?.content ?? [];
+      setOrders(loadedOrders);
+      setPageNumber(Array.isArray(body) ? 0 : body?.number ?? pageNumber);
+      setTotalPages(Array.isArray(body) ? (loadedOrders.length > 0 ? 1 : 0) : body?.totalPages ?? 0);
       setStatus("ready");
     }
 
@@ -151,7 +169,7 @@ export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCop
     return () => {
       active = false;
     };
-  }, [authRefreshKey, searchParams]);
+  }, [authRefreshKey, pageNumber, searchKey]);
 
   return (
     <section className="mt-8 scroll-mt-24" id="order-history">
@@ -238,6 +256,37 @@ export function OrderHistoryPanel({ copy, paymentCopy }: { copy: OrderHistoryCop
               </CardContent>
             </Card>
           ))}
+        </div>
+      ) : null}
+      {totalPages > 1 ? (
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+          <p className="text-sm text-muted-foreground">
+            {paymentCopy.common.pageOf
+              .replace("{page}", String(pageNumber + 1))
+              .replace("{total}", String(totalPages))}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              aria-label={paymentCopy.common.previousPage}
+              disabled={status === "loading" || pageNumber <= 0}
+              onClick={() => setPageNumber((current) => Math.max(0, current - 1))}
+              size="icon"
+              type="button"
+              variant="outline"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              aria-label={paymentCopy.common.nextPage}
+              disabled={status === "loading" || pageNumber + 1 >= totalPages}
+              onClick={() => setPageNumber((current) => current + 1)}
+              size="icon"
+              type="button"
+              variant="outline"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       ) : null}
       <OrderDetailsDialog

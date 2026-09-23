@@ -41,6 +41,9 @@ export const dictionaries = {
       footerCopy: "Fresh pickup ordering, points on every meal, and thoughtful rewards for regulars.",
       cancel: "Cancel",
       close: "Close",
+      previousPage: "Previous page",
+      nextPage: "Next page",
+      pageOf: "Page {page} of {total}",
     },
     nav: {
       menu: "Menu",
@@ -464,6 +467,9 @@ export const dictionaries = {
       footerCopy: "在线自取点餐、每餐累积积分，并为常客提供贴心奖励。",
       cancel: "取消",
       close: "关闭",
+      previousPage: "上一页",
+      nextPage: "下一页",
+      pageOf: "第 {page} 页，共 {total} 页",
     },
     nav: { menu: "菜单", order: "点餐", rewards: "积分", admin: "管理" },
     home: {
@@ -872,6 +878,9 @@ export const dictionaries = {
       footerCopy: "간편한 픽업 주문, 식사마다 적립되는 포인트, 단골을 위한 세심한 리워드.",
       cancel: "취소",
       close: "닫기",
+      previousPage: "이전 페이지",
+      nextPage: "다음 페이지",
+      pageOf: "{page} / {total}페이지",
     },
     nav: { menu: "메뉴", order: "주문", rewards: "리워드", admin: "관리" },
     home: {

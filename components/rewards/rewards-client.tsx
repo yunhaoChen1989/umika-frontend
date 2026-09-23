@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Copy, Gift, History, Share2, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, Copy, Gift, History, Share2, Sparkles } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
 import { Badge } from "@/components/ui/badge";
@@ -18,12 +18,21 @@ type RewardsState = {
   transactions: RewardTransactionResponse[];
 };
 
+const PAGE_SIZE = 10;
+
 export function RewardsClient({ copy }: { copy: Dictionary }) {
   const searchParams = useSearchParams();
   const [state, setState] = useState<RewardsState>({ summary: null, redemptionStatus: null, transactions: [] });
   const [status, setStatus] = useState<"loading" | "ready" | "unauthenticated" | "error">("loading");
   const [message, setMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [pageNumber, setPageNumber] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const searchKey = searchParams.toString();
+
+  useEffect(() => {
+    setPageNumber(0);
+  }, [searchKey]);
 
   useEffect(() => {
     let active = true;
@@ -39,8 +48,9 @@ export function RewardsClient({ copy }: { copy: Dictionary }) {
       setStatus("loading");
       setMessage(null);
 
-      const locationId = searchParams.get("locationId") ?? searchParams.get("location") ?? searchParams.get("storeId") ?? searchParams.get("store");
-      const locationCode = searchParams.get("locationCode") ?? searchParams.get("storeCode");
+      const activeSearchParams = new URLSearchParams(searchKey);
+      const locationId = activeSearchParams.get("locationId") ?? activeSearchParams.get("location") ?? activeSearchParams.get("storeId") ?? activeSearchParams.get("store");
+      const locationCode = activeSearchParams.get("locationCode") ?? activeSearchParams.get("storeCode");
       const summaryUrl = new URL("/api/me/rewards", window.location.origin);
       const redemptionUrl = new URL("/api/me/rewards/redemption-status", window.location.origin);
       const transactionsUrl = new URL("/api/me/rewards/transactions", window.location.origin);
@@ -55,8 +65,8 @@ export function RewardsClient({ copy }: { copy: Dictionary }) {
         redemptionUrl.searchParams.set("locationCode", locationCode);
       }
 
-      transactionsUrl.searchParams.set("page", "0");
-      transactionsUrl.searchParams.set("size", "20");
+      transactionsUrl.searchParams.set("page", String(pageNumber));
+      transactionsUrl.searchParams.set("size", String(PAGE_SIZE));
 
       const [summaryResponse, redemptionResponse, transactionsResponse] = await Promise.all([
         fetch(summaryUrl.toString(), { headers, cache: "no-store" }).catch(() => null),
@@ -82,12 +92,15 @@ export function RewardsClient({ copy }: { copy: Dictionary }) {
       const transactionBody = normalizePayload<SpringPage<RewardTransactionResponse> | RewardTransactionResponse[]>(
         await transactionsResponse?.json().catch(() => null),
       );
+      const transactions = Array.isArray(transactionBody) ? transactionBody : transactionBody?.content ?? [];
 
       setState({
         summary,
         redemptionStatus,
-        transactions: Array.isArray(transactionBody) ? transactionBody : transactionBody?.content ?? [],
+        transactions,
       });
+      setPageNumber(Array.isArray(transactionBody) ? 0 : transactionBody?.number ?? pageNumber);
+      setTotalPages(Array.isArray(transactionBody) ? (transactions.length > 0 ? 1 : 0) : transactionBody?.totalPages ?? 0);
       setStatus("ready");
     }
 
@@ -96,7 +109,7 @@ export function RewardsClient({ copy }: { copy: Dictionary }) {
     return () => {
       active = false;
     };
-  }, [copy.rewardsPage.loadError, searchParams]);
+  }, [copy.rewardsPage.loadError, pageNumber, searchKey]);
 
   const balance = firstNumber(state.summary?.pointsBalance, state.summary?.balance, state.redemptionStatus?.pointsBalance);
   const pointsPerDollar = firstNumber(state.summary?.pointsPerDollar);
@@ -125,7 +138,7 @@ export function RewardsClient({ copy }: { copy: Dictionary }) {
     window.setTimeout(() => setCopied(false), 1800);
   }
 
-  if (status === "loading") {
+  if (status === "loading" && !state.summary) {
     return <p className="mx-auto max-w-7xl px-4 py-12 text-sm text-muted-foreground sm:px-6 lg:px-8">{copy.rewardsPage.loading}</p>;
   }
 
@@ -215,6 +228,37 @@ export function RewardsClient({ copy }: { copy: Dictionary }) {
             <p className="p-4 text-sm text-muted-foreground">{copy.rewardsPage.emptyHistory}</p>
           )}
         </div>
+        {totalPages > 1 ? (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              {copy.common.pageOf
+                .replace("{page}", String(pageNumber + 1))
+                .replace("{total}", String(totalPages))}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                aria-label={copy.common.previousPage}
+                disabled={status === "loading" || pageNumber <= 0}
+                onClick={() => setPageNumber((current) => Math.max(0, current - 1))}
+                size="icon"
+                type="button"
+                variant="outline"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button
+                aria-label={copy.common.nextPage}
+                disabled={status === "loading" || pageNumber + 1 >= totalPages}
+                onClick={() => setPageNumber((current) => current + 1)}
+                size="icon"
+                type="button"
+                variant="outline"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </section>
   );

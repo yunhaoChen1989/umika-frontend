@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 
 import { LoginRedirectLink } from "@/components/auth/login-redirect-link";
+import { MenuOptionManager } from "@/components/manager/menus/menu-option-manager";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1844,6 +1845,14 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
           )}
         </CardContent>
       </Card>
+
+      {status === "ready" ? (
+        <MenuOptionManager
+          canChangeLocation={canChangeLocation}
+          locationId={selectedLocationId || null}
+          menuItems={selectedItemOptions}
+        />
+      ) : null}
     </div>
   );
 }
