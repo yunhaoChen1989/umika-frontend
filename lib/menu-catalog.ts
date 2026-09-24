@@ -136,7 +136,7 @@ function normalizeGroups(values: unknown[], locale: Locale): ResolvedMenuOptionG
 
 function normalizeOptions(values: unknown[], groupRequired: boolean | null, locale: Locale): ResolvedMenuOption[] {
   return values
-    .filter(isOptionRecord)
+    .filter(isRecord)
     .map((value) => {
       const id = getString(value.id) ?? getString(value.optionId);
       const name = getLocalizedString(value, "name", locale) ?? getLocalizedString(value, "label", locale);
