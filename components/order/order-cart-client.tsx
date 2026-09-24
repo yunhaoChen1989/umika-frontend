@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { ChevronDown, CreditCard, Mail, Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
 
@@ -56,6 +56,8 @@ export function OrderCartClient({
   const [cart, setCart] = useState<CartResponse | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState("");
   const [redemptionPreview, setRedemptionPreview] = useState<RedemptionPreviewResponse | null>(null);
+  const previewRequestId = useRef(0);
+  const checkoutInProgress = useRef(false);
   const [checkoutResult, setCheckoutResult] = useState<CheckoutResponse | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [message, setMessage] = useState<string | null>(null);
@@ -78,7 +80,7 @@ export function OrderCartClient({
   const [itemQuantity, setItemQuantity] = useState(1);
   const [itemNote, setItemNote] = useState("");
   const [isImageZoomed, setIsImageZoomed] = useState(false);
-  const subtotal = Number(redemptionPreview?.subtotal ?? cart?.subtotal ?? 0);
+  const subtotal = Number(cart?.subtotal ?? redemptionPreview?.subtotal ?? 0);
   const tipAmount = calculateTipAmount(subtotal, tipMode, customTipAmount);
   const previewTipAmount = redemptionPreview?.tipAmount ?? tipAmount;
   const tax = redemptionPreview?.taxAmount ?? redemptionPreview?.tax;
@@ -221,18 +223,20 @@ export function OrderCartClient({
   }, [copy.menuPage.itemFallback, copy.menuPage.loadError, copy.orderPage.cartError, copy.orderPage.locationRequired, loadCart, locale, searchParams, sessionId]);
 
   useEffect(() => {
+    previewRequestId.current += 1;
+    setRedemptionPreview(null);
     if (!cart?.items.length) {
-      setRedemptionPreview(null);
       return;
     }
 
     if (!localStorage.getItem("umika_access_token")) {
-      setRedemptionPreview(null);
       return;
     }
 
     const timeout = window.setTimeout(() => {
-      void previewRedemption();
+      if (!checkoutInProgress.current) {
+        void previewRedemption();
+      }
     }, 250);
 
     return () => {
@@ -468,10 +472,11 @@ export function OrderCartClient({
     notifyCartChanged();
   }
 
-  async function previewRedemption({ redirectOnAuthError = false }: { redirectOnAuthError?: boolean } = {}) {
+  async function previewRedemption({ redirectOnAuthError = false, syncCart = true }: { redirectOnAuthError?: boolean; syncCart?: boolean } = {}) {
     if (!cart?.id) {
       return null;
     }
+    const requestId = ++previewRequestId.current;
 
     const headers = getAuthHeaders();
     headers.set("Content-Type", "application/json");
@@ -486,6 +491,10 @@ export function OrderCartClient({
       }),
       cache: "no-store",
     }).catch(() => null);
+
+    if (requestId !== previewRequestId.current) {
+      return null;
+    }
 
     if (!response?.ok) {
       const body = response ? await response.json().catch(() => null) : null;
@@ -506,7 +515,22 @@ export function OrderCartClient({
     }
 
     const preview = normalizePayload<RedemptionPreviewResponse>(await response.json().catch(() => null));
+    if (requestId !== previewRequestId.current) {
+      return null;
+    }
     setRedemptionPreview(preview);
+    if (syncCart && preview?.subtotal != null && Number(preview.subtotal) !== Number(cart.subtotal)) {
+      const refreshed = await fetch(`/api/cart/${cart.id}?sessionId=${encodeURIComponent(sessionId)}`, {
+        headers: getAuthHeaders(),
+        cache: "no-store",
+      }).catch(() => null);
+      if (refreshed?.ok && requestId === previewRequestId.current) {
+        const updatedCart = normalizeCart(await refreshed.json().catch(() => null));
+        if (updatedCart && requestId === previewRequestId.current) {
+          setCart(updatedCart);
+        }
+      }
+    }
     return preview;
   }
 
@@ -520,13 +544,16 @@ export function OrderCartClient({
       return;
     }
 
+    checkoutInProgress.current = true;
+    previewRequestId.current += 1;
     setIsCheckingOut(true);
     setMessage(null);
     setCheckoutResult(null);
 
-    const preview = await previewRedemption({ redirectOnAuthError: true });
+    const preview = await previewRedemption({ redirectOnAuthError: true, syncCart: false });
 
     if (!preview) {
+      checkoutInProgress.current = false;
       setIsCheckingOut(false);
       return;
     }
@@ -547,7 +574,7 @@ export function OrderCartClient({
       addressId: null,
       customerNote: customerNote.trim() || null,
       pointsToRedeem: canRedeemPoints ? pointsToRedeem : 0,
-      tipAmount,
+      tipAmount: calculateTipAmount(Number(preview.subtotal ?? cart.subtotal), tipMode, customTipAmount),
     };
 
     if (orderType === "PICKUP") {
@@ -567,6 +594,7 @@ export function OrderCartClient({
       cache: "no-store",
     }).catch(() => null);
 
+    checkoutInProgress.current = false;
     setIsCheckingOut(false);
 
     if (!response?.ok) {
@@ -578,6 +606,9 @@ export function OrderCartClient({
       }
 
       setMessage(resolveErrorMessage(body, copy.orderPage.checkoutError));
+      if (selectedLocationId) {
+        await loadCart(selectedLocationId).catch(() => null);
+      }
       return;
     }
 
