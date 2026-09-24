@@ -14,7 +14,7 @@ export default async function ManagerMenuItemsPage() {
         title={copy.title}
         description={copy.description}
       />
-      <MenuCatalogManager initialKind="item" />
+      <MenuCatalogManager initialKind="item" locale={locale} />
     </div>
   );
 }

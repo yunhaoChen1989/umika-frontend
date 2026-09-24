@@ -33,6 +33,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { LocationDto, SpringPage } from "@/lib/location-types";
+import type { Locale } from "@/lib/i18n";
 import type {
   LocationMenuOverrideDto,
   MenuCategoryDto,
@@ -263,7 +264,7 @@ async function getApiErrorMessage(response: Response | null, fallback: string) {
   return text.trim() || fallback;
 }
 
-export function MenuCatalogManager({ initialKind = "category" }: { initialKind?: MenuFormState["kind"] }) {
+export function MenuCatalogManager({ initialKind = "category", locale = "en" }: { initialKind?: MenuFormState["kind"]; locale?: Locale }) {
   const searchParams = useSearchParams();
   const searchParamsKey = searchParams.toString();
   const [locations, setLocations] = useState<LocationDto[]>([]);
@@ -1850,6 +1851,8 @@ export function MenuCatalogManager({ initialKind = "category" }: { initialKind?:
         <MenuOptionManager
           canChangeLocation={canChangeLocation}
           locationId={selectedLocationId || null}
+          locale={locale}
+          menuCategories={selectedCategoryOptions}
           menuItems={selectedItemOptions}
         />
       ) : null}

@@ -106,9 +106,7 @@ export type MenuCatalogItemDto = {
   imageUrl?: string | null;
   images?: MenuCatalogImageDto[] | null;
   isAvailable?: boolean | null;
-  options?: MenuCatalogItemOptionDto[] | MenuCatalogOptionGroupDto[] | null;
   optionGroups?: MenuCatalogOptionGroupDto[] | null;
-  modifiers?: MenuCatalogItemOptionDto[] | MenuCatalogOptionGroupDto[] | null;
   translations?: LocalizedFields | null;
   nameZh?: string | null;
   nameKo?: string | null;
@@ -140,7 +138,6 @@ export type MenuCatalogOptionGroupDto = {
   name?: string | null;
   label?: string | null;
   options?: MenuCatalogItemOptionDto[] | null;
-  modifiers?: MenuCatalogItemOptionDto[] | null;
   isRequired?: boolean | null;
   minSelect?: number | null;
   maxSelect?: number | null;

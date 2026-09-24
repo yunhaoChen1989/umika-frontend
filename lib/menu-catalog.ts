@@ -1,4 +1,4 @@
-import type { MenuCatalogCategoryDto, MenuCatalogItemDto, MenuCatalogItemOptionDto, MenuCatalogOptionGroupDto, MenuCatalogResponse } from "@/lib/menu-management-types";
+import type { MenuCatalogCategoryDto, MenuCatalogItemDto, MenuCatalogResponse } from "@/lib/menu-management-types";
 import type { Locale } from "@/lib/i18n";
 
 export type ResolvedMenuCategory = {
@@ -107,29 +107,7 @@ export function mergeResolvedMenuItemDetail(base: ResolvedMenuItem, detail: unkn
 }
 
 function normalizeOptionGroups(item: MenuCatalogItemDto, locale: Locale): ResolvedMenuOptionGroup[] {
-  const directOptions = normalizeOptions(readArray(item.options), null, locale);
-  const groups = [
-    ...normalizeGroups(readArray(item.optionGroups), locale),
-    ...normalizeGroups(readArray(item.modifiers), locale),
-    ...normalizeGroups(
-      readArray(item.options).filter((entry) => isRecord(entry) && (Array.isArray(entry.options) || Array.isArray(entry.modifiers))),
-      locale,
-    ),
-  ];
-
-  if (directOptions.length > 0) {
-    groups.unshift({
-      id: null,
-      name: "",
-      isRequired: null,
-      minSelect: null,
-      maxSelect: null,
-      sortOrder: null,
-      options: directOptions,
-    });
-  }
-
-  return groups
+  return normalizeGroups(readArray(item.optionGroups), locale)
     .map((group) => ({ ...group, options: dedupeOptions(group.options) }))
     .filter((group) => group.options.length > 0)
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
@@ -152,11 +130,7 @@ function normalizeGroups(values: unknown[], locale: Locale): ResolvedMenuOptionG
       minSelect: getNumber(group.minSelect),
       maxSelect: getNumber(group.maxSelect),
       sortOrder: getNumber(group.sortOrder),
-      options: normalizeOptions(
-        readArray(group.options).length ? readArray(group.options) : readArray(group.modifiers),
-        getBoolean(group.isRequired),
-        locale,
-      ),
+      options: normalizeOptions(readArray(group.options), getBoolean(group.isRequired), locale),
     }));
 }
 
@@ -183,10 +157,6 @@ function normalizeOptions(values: unknown[], groupRequired: boolean | null, loca
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name));
 }
 
-function isOptionRecord(value: unknown): value is Record<string, unknown> & MenuCatalogItemOptionDto {
-  return isRecord(value) && !Array.isArray(value.options) && !Array.isArray(value.modifiers);
-}
-
 function dedupeOptions(options: ResolvedMenuOption[]) {
   const seen = new Set<string>();
   return options.filter((option) => {
@@ -203,7 +173,7 @@ function readArray(value: unknown) {
   return Array.isArray(value) ? value : [];
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> & MenuCatalogItemOptionDto & MenuCatalogOptionGroupDto {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object");
 }
 
