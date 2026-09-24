@@ -111,17 +111,19 @@ export function OrderManager() {
   const [refundingId, setRefundingId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState<"connecting" | "connected" | "disconnected">("disconnected");
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [activeAlertOrderId, setActiveAlertOrderId] = useState<string | null>(null);
+  const [pendingAcceptanceOrders, setPendingAcceptanceOrders] = useState<CheckoutResponse[]>([]);
+  const pendingAcceptanceRevision = useRef(0);
   const [latestNotification, setLatestNotification] = useState<OrderNotificationPayload | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const activeAlertOrderIdRef = useRef<string | null>(null);
-  const startupSoundAttemptedRef = useRef(false);
+  const hasPendingAcceptanceOrders = pendingAcceptanceOrders.length > 0;
 
   const detailOrder = useMemo(
-    () => orders.find((order) => getOrderId(order) === detailOrderId) ?? null,
-    [orders, detailOrderId],
+    () => orders.find((order) => getOrderId(order) === detailOrderId)
+      ?? pendingAcceptanceOrders.find((order) => getOrderId(order) === detailOrderId)
+      ?? null,
+    [orders, pendingAcceptanceOrders, detailOrderId],
   );
   const locationContext = useMemo(() => getStoredLocationContext(searchParams), [searchParams]);
   const locationKey = `${locationContext.locationId ?? ""}:${locationContext.locationCode ?? ""}`;
@@ -141,6 +143,7 @@ export function OrderManager() {
         setHeaderLocationId("");
         setIsLocationContextReady(true);
         setOrders([]);
+        setPendingAcceptanceOrders([]);
         setSelectedOrderId("");
         setDetailOrderId("");
         setPageNumber(0);
@@ -157,6 +160,7 @@ export function OrderManager() {
       setFilters(nextFilters);
       setAppliedFilters(nextFilters);
       setOrders([]);
+      setPendingAcceptanceOrders([]);
       setSelectedOrderId("");
       setDetailOrderId("");
       setPageNumber(0);
@@ -196,32 +200,35 @@ export function OrderManager() {
   }, []);
 
   useEffect(() => {
-    activeAlertOrderIdRef.current = activeAlertOrderId;
-  }, [activeAlertOrderId]);
-
-  useEffect(() => {
-    if (!soundEnabled || startupSoundAttemptedRef.current) {
-      return;
-    }
-
-    startupSoundAttemptedRef.current = true;
-    playOrderNotificationSound(true);
-  }, [soundEnabled]);
-
-  useEffect(() => {
-    if (!soundEnabled || !activeAlertOrderId) {
+    if (!soundEnabled || !hasPendingAcceptanceOrders) {
       return;
     }
 
     playOrderNotificationSound(true);
-    const interval = window.setInterval(() => {
-      if (activeAlertOrderIdRef.current) {
-        playOrderNotificationSound(true);
-      }
-    }, 2500);
-
+    const interval = window.setInterval(() => playOrderNotificationSound(true), 2500);
     return () => window.clearInterval(interval);
-  }, [activeAlertOrderId, soundEnabled]);
+  }, [hasPendingAcceptanceOrders, soundEnabled]);
+
+  useEffect(() => {
+    if (pendingAcceptanceOrders.length === 0) {
+      if ((detailOrder?.status ?? "").toUpperCase() === "PAID") {
+        setDetailOrderId("");
+      }
+      return;
+    }
+
+    const currentPendingOrder = pendingAcceptanceOrders.find((order) => getOrderId(order) === detailOrderId);
+    if (currentPendingOrder) {
+      return;
+    }
+
+    const nextOrder = pendingAcceptanceOrders[0];
+    const nextOrderId = getOrderId(nextOrder);
+    if (nextOrderId) {
+      setSelectedOrderId(nextOrderId);
+      setDetailOrderId(nextOrderId);
+    }
+  }, [pendingAcceptanceOrders, detailOrderId, detailOrder]);
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -259,16 +266,31 @@ export function OrderManager() {
           return;
         }
 
+        const incomingOrder = payload.order;
+        const incomingOrderId = getOrderId(incomingOrder);
+        const incomingStatus = (incomingOrder.status ?? "").toUpperCase();
+        if (incomingOrderId) {
+          pendingAcceptanceRevision.current += 1;
+        }
         setLatestNotification(payload);
-        upsertOrder(payload.order);
-        setSelectedOrderId(getOrderId(payload.order));
-        if (payload.requiresAcceptance && (payload.order.status ?? "").toUpperCase() === "PAID") {
-          setActiveAlertOrderId(getOrderId(payload.order));
-        } else if ((payload.order.status ?? "").toUpperCase() !== "PAID") {
-          setActiveAlertOrderId((current) => (current === getOrderId(payload.order) ? null : current));
+        upsertOrder(incomingOrder);
+        setSelectedOrderId(incomingOrderId);
+        if (incomingOrderId) {
+          setPendingAcceptanceOrders((current) => {
+            if (incomingStatus !== "PAID") {
+              return current.filter((order) => getOrderId(order) !== incomingOrderId);
+            }
+            const exists = current.some((order) => getOrderId(order) === incomingOrderId);
+            return exists
+              ? current.map((order) => getOrderId(order) === incomingOrderId ? incomingOrder : order)
+              : [...current, incomingOrder];
+          });
+          if (incomingStatus !== "PAID") {
+            setDetailOrderId((current) => current === incomingOrderId ? "" : current);
+          }
         }
         if (payload.type !== "ORDER_STATUS_UPDATED") {
-          setDetailOrderId(getOrderId(payload.order));
+          setDetailOrderId(incomingOrderId);
         }
       };
     }
@@ -346,6 +368,80 @@ export function OrderManager() {
     setMessage(loadedOrders.length === 0 ? "No orders found." : null);
   }, [pageSize]);
 
+  const loadPendingAcceptanceOrders = useCallback(async (locationId: string) => {
+    const waitingOrders: CheckoutResponse[] = [];
+    let page = 0;
+    let totalPages = 1;
+
+    while (page < totalPages) {
+      const url = new URL("/api/orders", window.location.origin);
+      if (locationId) {
+        url.searchParams.set("locationId", locationId);
+      }
+      url.searchParams.set("status", "PAID");
+      url.searchParams.set("page", String(page));
+      url.searchParams.set("size", "100");
+      url.searchParams.set("sort", "createdAt,asc");
+
+      const response = await fetch(url.toString(), {
+        method: "GET",
+        headers: getAuthHeaders(),
+        cache: "no-store",
+      }).catch(() => null);
+      if (!response?.ok) {
+        return null;
+      }
+
+      const body = (await response.json().catch(() => null)) as SpringPage<CheckoutResponse> | CheckoutResponse[] | null;
+      if (Array.isArray(body)) {
+        waitingOrders.push(...body.filter((order) => (order.status ?? "").toUpperCase() === "PAID"));
+        break;
+      }
+
+      const pageOrders = body?.content ?? [];
+      waitingOrders.push(...pageOrders.filter((order) => (order.status ?? "").toUpperCase() === "PAID"));
+      totalPages = body?.totalPages ?? (pageOrders.length === 100 ? page + 2 : page + 1);
+      page += 1;
+    }
+
+    return waitingOrders;
+  }, []);
+
+  useEffect(() => {
+    if (!isLocationContextReady) {
+      return;
+    }
+
+    let active = true;
+    let loading = false;
+    const refreshWaitingOrders = async () => {
+      if (loading) {
+        return;
+      }
+      loading = true;
+      const revisionAtStart = pendingAcceptanceRevision.current;
+      const waitingOrders = await loadPendingAcceptanceOrders(headerLocationId);
+      loading = false;
+      if (active && waitingOrders) {
+        if (pendingAcceptanceRevision.current !== revisionAtStart) {
+          void refreshWaitingOrders();
+          return;
+        }
+        setPendingAcceptanceOrders(waitingOrders);
+      }
+    };
+
+    void refreshWaitingOrders();
+    const interval = window.setInterval(() => void refreshWaitingOrders(), 15000);
+    window.addEventListener("focus", refreshWaitingOrders);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshWaitingOrders);
+    };
+  }, [headerLocationId, isLocationContextReady, loadPendingAcceptanceOrders]);
+
   useEffect(() => {
     if (!isLocationContextReady) {
       return;
@@ -406,8 +502,9 @@ export function OrderManager() {
 
     const updatedOrder = (await response.json().catch(() => null)) as CheckoutResponse | null;
     if (updatedOrder && getOrderId(updatedOrder)) {
+      pendingAcceptanceRevision.current += 1;
       upsertOrder(updatedOrder);
-      setActiveAlertOrderId((current) => (current === orderId ? null : current));
+      setPendingAcceptanceOrders((current) => current.filter((waitingOrder) => getOrderId(waitingOrder) !== orderId));
       setLatestNotification((current) =>
         current && current.orderId === orderId
           ? { ...current, requiresAcceptance: false, type: "ORDER_STATUS_UPDATED", status: updatedOrder.status ?? "PREPARING", order: updatedOrder }
@@ -456,8 +553,16 @@ export function OrderManager() {
 
     const updatedOrder = (await response.json().catch(() => null)) as CheckoutResponse | null;
     if (updatedOrder && getOrderId(updatedOrder)) {
+      pendingAcceptanceRevision.current += 1;
       upsertOrder(updatedOrder);
-      setActiveAlertOrderId((current) => (current === orderId && (updatedOrder.status ?? "").toUpperCase() !== "PAID" ? null : current));
+      setPendingAcceptanceOrders((current) => {
+        if ((updatedOrder.status ?? "").toUpperCase() === "PAID") {
+          return current.some((waitingOrder) => getOrderId(waitingOrder) === orderId)
+            ? current.map((waitingOrder) => getOrderId(waitingOrder) === orderId ? updatedOrder : waitingOrder)
+            : [...current, updatedOrder];
+        }
+        return current.filter((waitingOrder) => getOrderId(waitingOrder) !== orderId);
+      });
       setLatestNotification((current) =>
         current && current.orderId === orderId
           ? { ...current, type: "ORDER_STATUS_UPDATED", status: updatedOrder.status ?? nextStatus, order: updatedOrder }
@@ -1341,6 +1446,9 @@ function parseOrderNotification(value: string) {
   }
 }
 
+let orderNotificationAudioContext: AudioContext | null = null;
+let orderNotificationAudioResumePending = false;
+
 function playOrderNotificationSound(enabled: boolean) {
   if (!enabled || typeof window === "undefined") {
     return;
@@ -1353,21 +1461,43 @@ function playOrderNotificationSound(enabled: boolean) {
     return;
   }
 
-  const context = new AudioContextClass();
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
+  if (!orderNotificationAudioContext || orderNotificationAudioContext.state === "closed") {
+    orderNotificationAudioContext = new AudioContextClass();
+  }
+  const context = orderNotificationAudioContext;
+  const playTone = () => {
+    if (context.state !== "running") {
+      return;
+    }
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
 
-  oscillator.type = "sine";
-  oscillator.frequency.setValueAtTime(880, context.currentTime);
-  oscillator.frequency.setValueAtTime(660, context.currentTime + 0.12);
-  gain.gain.setValueAtTime(0.0001, context.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.22, context.currentTime + 0.02);
-  gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.35);
-  oscillator.connect(gain);
-  gain.connect(context.destination);
-  oscillator.start();
-  oscillator.stop(context.currentTime + 0.36);
-  window.setTimeout(() => void context.close(), 500);
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, context.currentTime);
+    oscillator.frequency.setValueAtTime(660, context.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.22, context.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.35);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.36);
+  };
+
+  if (context.state === "suspended") {
+    if (!orderNotificationAudioResumePending) {
+      orderNotificationAudioResumePending = true;
+      void context.resume().then(() => {
+        orderNotificationAudioResumePending = false;
+        playTone();
+      }).catch(() => {
+        orderNotificationAudioResumePending = false;
+      });
+    }
+    return;
+  }
+
+  playTone();
 }
 
 function formatNotificationType(payload: OrderNotificationPayload) {

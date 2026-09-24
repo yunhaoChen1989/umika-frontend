@@ -342,7 +342,9 @@ function OrderDetailsDialog({
               <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
                 <DetailTile label={copy.orderStatus} value={order.status ?? "--"} />
                 <DetailTile label={copy.orderType} value={order.orderType ?? "--"} />
-                {order.requestedPickupTime ? <DetailTile label={copy.requestedPickupTime} value={formatDate(order.requestedPickupTime)} /> : null}
+                {order.requestedPickupTime && (order.status ?? "").toUpperCase() !== "PAID" ? (
+                  <DetailTile label={copy.requestedPickupTime} value={formatDate(order.requestedPickupTime)} />
+                ) : null}
                 <DetailTile label={copy.orderTotal} value={formatMoney(order.finalTotal ?? order.total)} />
                 <DetailTile label={copy.subtotal} value={formatMoney(order.subtotal)} />
                 <DetailTile label={copy.discount} value={formatMoney(order.totalDiscount)} />
